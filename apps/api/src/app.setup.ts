@@ -53,7 +53,7 @@ export function configureApp(app: INestApplication, config: AppConfigService): v
     origin: config.webOrigins,
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key'],
     exposedHeaders: ['X-Request-Id'],
     maxAge: 600,
   });

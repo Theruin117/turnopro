@@ -1,0 +1,182 @@
+# ─────────────────────────────────────────────────────────────
+# TurnoPro — stack local completo
+#
+#   docker compose -f infrastructure/docker-compose.yml up -d --build
+#
+# Variables que conviene sobrescribir en un entorno real:
+#   POSTGRES_PASSWORD, JWT_ACCESS_SECRET, WEB_ORIGIN, COOKIE_SECURE
+# ─────────────────────────────────────────────────────────────
+name: turnopro
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  APP_VERSION: ${APP_VERSION:-0.1.0}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://turnopro:${POSTGRES_PASSWORD:-turnopro}@postgres:5432/turnopro?schema=public
+  REDIS_URL: redis://redis:6379
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-secret-change-me-before-deploying}
+  JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+  REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+  WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+  RATE_LIMIT_TTL_SECONDS: ${RATE_LIMIT_TTL_SECONDS:-60}
+  RATE_LIMIT_LIMIT: ${RATE_LIMIT_LIMIT:-100}
+  SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:-TurnoProDemo123!}
+
+x-app-build: &app-build
+  context: ..
+  dockerfile: infrastructure/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: turnopro
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-turnopro}
+      POSTGRES_DB: turnopro
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U turnopro -d turnopro']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    image: turnopro-api:local
+    build:
+      <<: *app-build
+      target: api
+    environment: *app-environment
+    command:
+      [
+        'pnpm',
+        '--filter',
+        '@turnopro/database',
+        'exec',
+        'prisma',
+        'migrate',
+        'deploy',
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    image: turnopro-api:local
+    build:
+      <<: *app-build
+      target: api
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      PORT: 3001
+      API_PREFIX: api/v1
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+    ports:
+      - '${API_PORT:-3001}:3001'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/api/v1/health/live').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    stop_grace_period: 20s
+
+  worker:
+    build:
+      <<: *app-build
+      target: worker
+    image: turnopro-worker:local
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      WORKER_HEALTH_PORT: 3002
+      MAINTENANCE_INTERVAL_MINUTES: ${MAINTENANCE_INTERVAL_MINUTES:-60}
+    ports:
+      - '${WORKER_HEALTH_PORT:-3002}:3002'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3002/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 20s
+
+  web:
+    build:
+      <<: *app-build
+      target: web
+      args:
+        # Se inlinea en el bundle del navegador: debe ser accesible desde el host.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+    image: turnopro-web:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 15s
+
+volumes:
+  postgres-data:
+  redis-data:

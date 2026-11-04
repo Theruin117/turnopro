@@ -82,6 +82,8 @@ function TeamView() {
   );
 
   useEffect(() => {
+    // Carga de datos remotos al montar o cambiar de página.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(page);
   }, [load, page]);
 

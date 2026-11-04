@@ -36,6 +36,10 @@ export function isValidCurrency(value: string): boolean {
   if (!/^[A-Z]{3}$/.test(value)) {
     return false;
   }
+  // XXX significa "sin moneda" y XTS es sólo para pruebas: no son monedas de negocio.
+  if (value === 'XXX' || value === 'XTS') {
+    return false;
+  }
   try {
     new Intl.NumberFormat('en-US', { style: 'currency', currency: value }).format(0);
     return true;

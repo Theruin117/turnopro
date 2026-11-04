@@ -1,0 +1,26 @@
+# Contexto de Docker — nunca enviar secretos ni artefactos locales
+.git
+.gitignore
+.github
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+.pnpm-store
+.turbo
+**/.turbo
+dist
+**/dist
+.next
+**/.next
+coverage
+**/coverage
+*.log
+logs
+tmp
+.tmp
+.DS_Store
+.idea
+.vscode
+docs/assets

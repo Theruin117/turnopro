@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import type { AuthOrganization } from '@turnopro/contracts';
 import {
@@ -51,20 +51,12 @@ export default function SettingsPage() {
 
 function SettingsView() {
   const { session, hasPermission, updateOrganization } = useAuth();
-  const [name, setName] = useState('');
-  const [timezone, setTimezone] = useState('');
-  const [currency, setCurrency] = useState('MXN');
+  const [name, setName] = useState(session?.organization.name ?? '');
+  const [timezone, setTimezone] = useState(session?.organization.timezone ?? '');
+  const [currency, setCurrency] = useState(session?.organization.currency ?? 'MXN');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (session) {
-      setName(session.organization.name);
-      setTimezone(session.organization.timezone);
-      setCurrency(session.organization.currency);
-    }
-  }, [session]);
 
   if (!session) {
     return null;

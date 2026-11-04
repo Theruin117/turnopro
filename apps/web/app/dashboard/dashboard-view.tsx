@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { HealthResponse } from '@turnopro/contracts';
 import {
@@ -73,6 +73,8 @@ export function DashboardView() {
   }, []);
 
   useEffect(() => {
+    // Sincronización con un sistema externo (health de la API) al montar y cada 30 s.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadHealth();
     const interval = window.setInterval(() => void loadHealth(), 30_000);
     return () => window.clearInterval(interval);
