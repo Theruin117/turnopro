@@ -1,0 +1,48 @@
+{
+  "name": "@turnopro/database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Esquema Prisma, migraciones y cliente de base de datos de TurnoPro",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "prisma"],
+  "scripts": {
+    "generate": "prisma generate",
+    "prebuild": "pnpm generate",
+    "build": "tsc -p tsconfig.json",
+    "pretypecheck": "pnpm generate",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src prisma",
+    "test": "vitest run --passWithNoTests --exclude 'test/**/*.integration.test.ts'",
+    "test:integration": "dotenv -e ../../.env -- vitest run test/database.integration.test.ts",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:status": "dotenv -e ../../.env -- prisma migrate status",
+    "reset": "dotenv -e ../../.env -- prisma migrate reset --force",
+    "seed": "dotenv -e ../../.env -- prisma db seed",
+    "studio": "dotenv -e ../../.env -- prisma studio",
+    "clean": "rm -rf dist"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "catalog:"
+  },
+  "devDependencies": {
+    "@node-rs/argon2": "catalog:",
+    "@types/node": "catalog:",
+    "dotenv-cli": "catalog:",
+    "prisma": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

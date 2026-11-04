@@ -1,0 +1,7 @@
+{
+  "extends": "@turnopro/config/tsconfig/next",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

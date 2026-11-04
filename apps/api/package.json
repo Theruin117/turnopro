@@ -1,0 +1,53 @@
+{
+  "name": "@turnopro/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API REST multi-tenant de TurnoPro",
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "lint": "eslint src test --no-error-on-unmatched-pattern",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:e2e": "dotenv -e ../../.env -- vitest run --config vitest.e2e.config.ts",
+    "clean": "rm -rf dist coverage"
+  },
+  "dependencies": {
+    "@nestjs/common": "catalog:",
+    "@nestjs/config": "catalog:",
+    "@nestjs/core": "catalog:",
+    "@nestjs/jwt": "catalog:",
+    "@nestjs/platform-express": "catalog:",
+    "@nestjs/swagger": "catalog:",
+    "@nestjs/throttler": "catalog:",
+    "@node-rs/argon2": "catalog:",
+    "@turnopro/contracts": "workspace:*",
+    "@turnopro/database": "workspace:*",
+    "@turnopro/shared": "workspace:*",
+    "class-transformer": "catalog:",
+    "class-validator": "catalog:",
+    "cookie-parser": "catalog:",
+    "helmet": "catalog:",
+    "ioredis": "catalog:",
+    "nestjs-pino": "catalog:",
+    "pino": "catalog:",
+    "pino-http": "catalog:",
+    "reflect-metadata": "catalog:",
+    "rxjs": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "catalog:",
+    "@nestjs/testing": "catalog:",
+    "@types/cookie-parser": "catalog:",
+    "@types/express": "catalog:",
+    "@types/node": "catalog:",
+    "@types/supertest": "catalog:",
+    "dotenv-cli": "catalog:",
+    "pino-pretty": "catalog:",
+    "supertest": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

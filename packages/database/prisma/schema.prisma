@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Organizaciones y acceso
+// ─────────────────────────────────────────────────────────────
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+model Organization {
+  id        String             @id @default(uuid()) @db.Uuid
+  name      String             @db.VarChar(120)
+  slug      String             @unique @db.VarChar(48)
+  status    OrganizationStatus @default(ACTIVE)
+  timezone  String             @default("America/Mexico_City") @db.VarChar(64)
+  currency  String             @default("MXN") @db.VarChar(3)
+  locale    String             @default("es-MX") @db.VarChar(12)
+  settings  Json               @default("{}")
+  createdAt DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @db.Timestamptz(3)
+
+  memberships      Membership[]
+  refreshTokens    RefreshToken[]
+  services         Service[]
+  employees        Employee[]
+  employeeServices EmployeeService[]
+  availability     AvailabilityRule[]
+  timeOff          TimeOff[]
+  clients          Client[]
+  appointments     Appointment[]
+  auditLogs        AuditLog[]
+  outboxEvents     OutboxEvent[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(254)
+  name         String     @db.VarChar(120)
+  passwordHash String     @db.VarChar(255)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?  @db.Timestamptz(3)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+
+  memberships       Membership[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]      @relation("AuditActor")
+  createdAppointments Appointment[] @relation("AppointmentCreator")
+
+  @@map("users")
+}
+
+model Membership {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  role           MembershipRole   @default(STAFF)
+  status         MembershipStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, status])
+  @@map("memberships")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  membershipId      String    @db.Uuid
+  organizationId    String    @db.Uuid
+  familyId          String    @db.Uuid
+  tokenHash         String    @unique @db.Char(64)
+  expiresAt         DateTime  @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  replacedByTokenId String?   @db.Uuid
+  lastUsedAt        DateTime? @db.Timestamptz(3)
+  ip                String?   @db.VarChar(64)
+  userAgent         String?   @db.VarChar(512)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership   Membership    @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  replacedBy   RefreshToken? @relation("RefreshTokenRotation", fields: [replacedByTokenId], references: [id], onDelete: SetNull)
+  replaces     RefreshToken[] @relation("RefreshTokenRotation")
+
+  @@index([userId])
+  @@index([membershipId])
+  @@index([organizationId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Catálogo de servicios y equipo
+// ─────────────────────────────────────────────────────────────
+
+enum ServiceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Service {
+  id                  String        @id @default(uuid()) @db.Uuid
+  organizationId      String        @db.Uuid
+  name                String        @db.VarChar(120)
+  description         String?       @db.Text
+  durationMinutes     Int
+  bufferBeforeMinutes Int           @default(0)
+  bufferAfterMinutes  Int           @default(0)
+  priceCents          Int           @default(0)
+  status              ServiceStatus @default(ACTIVE)
+  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employeeServices EmployeeService[]
+  appointments     Appointment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+  @@map("services")
+}
+
+model Employee {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @db.Uuid
+  name           String         @db.VarChar(120)
+  email          String?        @db.VarChar(254)
+  phone          String?        @db.VarChar(32)
+  color          String?        @db.VarChar(9)
+  status         EmployeeStatus @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employeeServices EmployeeService[]
+  availability     AvailabilityRule[]
+  timeOff          TimeOff[]
+  appointments     Appointment[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, email])
+  @@map("employees")
+}
+
+model EmployeeService {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  employeeId     String   @db.Uuid
+  serviceId      String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, serviceId])
+  @@index([organizationId])
+  @@index([serviceId])
+  @@map("employee_services")
+}
+
+model AvailabilityRule {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  employeeId     String   @db.Uuid
+  weekday        Int
+  startMinute    Int
+  endMinute      Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, weekday, startMinute, endMinute])
+  @@index([organizationId, employeeId, weekday])
+  @@map("availability_rules")
+}
+
+model TimeOff {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  employeeId     String   @db.Uuid
+  startsAt       DateTime @db.Timestamptz(3)
+  endsAt         DateTime @db.Timestamptz(3)
+  reason         String?  @db.VarChar(240)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, employeeId])
+  @@index([employeeId, startsAt, endsAt])
+  @@map("time_off")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Clientes y reservas
+// ─────────────────────────────────────────────────────────────
+
+enum ClientStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Client {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String       @db.VarChar(120)
+  email          String?      @db.VarChar(254)
+  phone          String?      @db.VarChar(32)
+  notes          String?      @db.Text
+  status         ClientStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId, status])
+  @@index([organizationId, name])
+  @@index([organizationId, email])
+  @@map("clients")
+}
+
+model Appointment {
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String            @db.Uuid
+  clientId          String            @db.Uuid
+  employeeId        String            @db.Uuid
+  serviceId         String            @db.Uuid
+  startAt           DateTime          @db.Timestamptz(3)
+  endAt             DateTime          @db.Timestamptz(3)
+  // Rango efectivamente bloqueado, incluye buffers del servicio.
+  blockedFromAt     DateTime          @db.Timestamptz(3)
+  blockedUntilAt    DateTime          @db.Timestamptz(3)
+  status            AppointmentStatus @default(PENDING)
+  idempotencyKey    String?           @db.VarChar(128)
+  notes             String?           @db.Text
+  createdByUserId   String?           @db.Uuid
+  cancelledAt       DateTime?         @db.Timestamptz(3)
+  cancellationReason String?          @db.VarChar(240)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  createdBy    User?        @relation("AppointmentCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, startAt])
+  @@index([organizationId, status, startAt])
+  @@index([employeeId, startAt, endAt])
+  @@index([clientId, startAt])
+  @@index([serviceId])
+  @@map("appointments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Auditoría y eventos de integración
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  actorUserId    String?  @db.Uuid
+  action         String   @db.VarChar(80)
+  entity         String   @db.VarChar(60)
+  entityId       String?  @db.VarChar(64)
+  metadata       Json?
+  ip             String?  @db.VarChar(64)
+  userAgent      String?  @db.VarChar(512)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entity, entityId])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model OutboxEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String?      @db.Uuid
+  type           String       @db.VarChar(100)
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  availableAt    DateTime     @default(now()) @db.Timestamptz(3)
+  processedAt    DateTime?    @db.Timestamptz(3)
+  lastError      String?      @db.Text
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([organizationId, type])
+  @@map("outbox_events")
+}

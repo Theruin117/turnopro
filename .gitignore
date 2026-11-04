@@ -1,0 +1,40 @@
+# Dependencias y artefactos
+node_modules/
+.pnpm-store/
+dist/
+.next/
+out/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Entorno y secretos — NUNCA commitear
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Logs y temporales
+*.log
+logs/
+.tmp/
+tmp/
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Prisma
+packages/database/prisma/*.db
+packages/database/prisma/*.db-journal
+
+# Next
+apps/web/.next/
+apps/web/next-env.d.ts

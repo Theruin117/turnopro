@@ -1,0 +1,44 @@
+{
+  "name": "turnopro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TurnoPro — plataforma SaaS multi-tenant para gestión de turnos y citas",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:api": "pnpm --filter @turnopro/api dev",
+    "dev:worker": "pnpm --filter @turnopro/worker dev",
+    "dev:web": "pnpm --filter @turnopro/web dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "pnpm --filter @turnopro/database test:integration",
+    "test:e2e": "pnpm --filter @turnopro/api test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "env:init": "node scripts/bootstrap-env.mjs",
+    "db:generate": "pnpm --filter @turnopro/database generate",
+    "db:migrate": "pnpm --filter @turnopro/database migrate:dev",
+    "db:deploy": "pnpm --filter @turnopro/database migrate:deploy",
+    "db:seed": "pnpm --filter @turnopro/database seed",
+    "db:studio": "pnpm --filter @turnopro/database studio",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "infra:up": "docker compose -f infrastructure/docker-compose.yml up -d --build",
+    "infra:down": "docker compose -f infrastructure/docker-compose.yml down",
+    "infra:logs": "docker compose -f infrastructure/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "@turnopro/config": "workspace:*",
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
+    "prettier": "3.9.10",
+    "turbo": "2.11.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1"
+  }
+}

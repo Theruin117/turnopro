@@ -1,0 +1,89 @@
+packages:
+  - apps/*
+  - packages/*
+
+packageImportMethod: copy
+
+allowBuilds:
+  '@scarf/scarf': false
+  '@node-rs/argon2': true
+  '@tailwindcss/oxide': true
+  sharp: true
+  unrs-resolver: true
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  msgpackr-extract: false
+  prisma: true
+
+catalog:
+  # Runtime / framework
+  next: 16.4.5
+  react: 19.3.1
+  react-dom: 19.3.1
+  "@nestjs/common": 12.3.2
+  "@nestjs/core": 12.3.2
+  "@nestjs/platform-express": 12.3.2
+  "@nestjs/config": 12.0.1
+  "@nestjs/jwt": 12.0.3
+  "@nestjs/swagger": 12.1.0
+  "@nestjs/throttler": 6.7.1
+  "@nestjs/bullmq": 12.0.0
+  "@nestjs/testing": 12.3.2
+  bullmq: 6.5.4
+  ioredis: 5.11.1
+  prisma: 6.19.3
+  "@prisma/client": 6.19.3
+  zod: 4.6.7
+  nestjs-pino: 5.3.1
+  pino: 10.4.0
+  pino-http: 11.0.0
+  pino-pretty: 13.2.0
+  helmet: 8.3.0
+  cookie-parser: 1.4.7
+  class-validator: 0.15.1
+  class-transformer: 0.5.1
+  reflect-metadata: 0.2.2
+  rxjs: 7.8.2
+  "@node-rs/argon2": 2.2.2
+  tailwindcss: 4.3.4
+  "@tailwindcss/postcss": 4.3.4
+  clsx: 2.1.1
+  tailwind-merge: 3.7.0
+  class-variance-authority: 0.7.1
+  lucide-react: 1.67.0
+  react-hook-form: 7.91.0
+  "@hookform/resolvers": 7.0.2
+
+  # Tooling
+  typescript: 5.9.3
+  "@types/node": 22.20.5
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@types/express": 5.0.6
+  "@types/cookie-parser": 1.4.10
+  "@types/supertest": 7.2.1
+  "@nestjs/cli": 12.0.11
+  turbo: 2.11.10
+  vitest: 5.1.0
+  supertest: 7.3.1
+  tsx: 4.23.15
+  dotenv-cli: 11.1.0
+  eslint: 9.39.5
+  typescript-eslint: 8.72.1
+  prettier: 3.9.10
+  prettier-plugin-tailwindcss: 0.8.1
+
+minimumReleaseAgeExclude:
+  - "@next/env@16.4.5"
+  - "@next/eslint-plugin-next@16.4.5"
+  - "@next/swc-darwin-arm64@16.4.5"
+  - "@next/swc-darwin-x64@16.4.5"
+  - "@next/swc-linux-arm64-gnu@16.4.5"
+  - "@next/swc-linux-arm64-musl@16.4.5"
+  - "@next/swc-linux-x64-gnu@16.4.5"
+  - "@next/swc-linux-x64-musl@16.4.5"
+  - "@next/swc-win32-arm64-msvc@16.4.5"
+  - "@next/swc-win32-x64-msvc@16.4.5"
+  - lucide-react@1.67.0
+  - next@16.4.5
