@@ -28,6 +28,7 @@ import { AppointmentsService } from './appointments.service';
 import { AppointmentsQueryDto } from './dto/appointments-query.dto';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 
 @ApiTags('appointments')
@@ -97,6 +98,28 @@ export class AppointmentsController {
     @Body() dto: UpdateAppointmentStatusDto,
   ): Promise<Appointment> {
     return this.appointments.updateStatus(
+      organization.id,
+      request.auth.sub,
+      appointmentId,
+      dto,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Patch(':id/schedule')
+  @HttpCode(200)
+  @RequirePermissions('appointments:write')
+  @ApiOperation({
+    summary: 'Reprograma un turno conservando sus datos si no se envían',
+  })
+  @ApiResponse({ status: 409, description: 'Horario ocupado o turno terminal' })
+  reschedule(
+    @CurrentOrganization() organization: { id: string },
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) appointmentId: string,
+    @Body() dto: RescheduleAppointmentDto,
+  ): Promise<Appointment> {
+    return this.appointments.reschedule(
       organization.id,
       request.auth.sub,
       appointmentId,

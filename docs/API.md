@@ -298,6 +298,35 @@ Reglas:
 
 Cada cambio queda registrado como `appointment.status_changed` en auditoría.
 
+### `PATCH /appointments/:id/schedule`
+
+Reprograma un turno existente. Cuerpo:
+
+```json
+{
+  "startAt": "2026-11-12T17:00:00.000Z",
+  "employeeId": "uuid opcional",
+  "serviceId": "uuid opcional",
+  "notes": "opcional"
+}
+```
+
+- `startAt` es obligatorio y debe estar en el futuro.
+- Si se omite `employeeId` o `serviceId` se conserva el valor actual.
+- Replica los invariantes de creación: empleado y servicio activos de la
+  organización, vínculo empleado-servicio, `time_off` y solapamiento con buffers.
+  El propio turno se excluye de la comprobación de solapamiento.
+- `200 OK` con el turno actualizado. La reprogramación no cambia el estado.
+- `409 CONFLICT` si el turno está `COMPLETED`, `CANCELLED` o `NO_SHOW`, o si el
+  horario deja de estar disponible (código `BOOKING_SLOT_UNAVAILABLE`).
+- `404 NOT_FOUND` si el turno, empleado o servicio no pertenecen al tenant.
+- `400 VALIDATION_ERROR` si el empleado no ofrece el servicio.
+
+Se audita como `appointment.rescheduled`, incluyendo el horario, empleado y
+servicio anteriores. Las reprogramaciones concurrentes al mismo slot se
+resuelven con la transacción `SERIALIZABLE` y la restricción de exclusión: solo
+una gana y la otra recibe `409`.
+
 ## 4. Catálogo
 
 Permisos: `services:read/write`, `employees:read/write`, `clients:read/write`. Cada recurso se busca siempre por `organizationId`; un identificador de otra organización responde `404 NOT_FOUND`.

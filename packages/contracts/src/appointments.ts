@@ -44,6 +44,15 @@ export const updateAppointmentStatusSchema = z.object({
 
 export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
 
+export const rescheduleAppointmentSchema = z.object({
+  startAt: z.iso.datetime({ offset: true }),
+  employeeId: z.uuid('El empleado no es válido').optional(),
+  serviceId: z.uuid('El servicio no es válido').optional(),
+  notes: z.string().trim().max(2_000).optional(),
+});
+
+export type RescheduleAppointmentInput = z.infer<typeof rescheduleAppointmentSchema>;
+
 export const createAppointmentSchema = z.object({
   clientId: z.uuid('El cliente no es válido'),
   employeeId: z.uuid('El empleado no es válido'),

@@ -102,8 +102,14 @@ function bookingBody(tenant: TenantFixture, startAt: string) {
 }
 
 /** Crea un turno ya iniciado directamente en la base para probar estados. */
+let pastAppointmentOffset = 2;
 async function createPastAppointment(tenant: TenantFixture) {
-  const startAt = new Date(Date.now() - 2 * 60 * 60 * 1_000);
+  // Cada turno pasado usa una hora distinta para no chocar con la restricción
+  // de exclusión del empleado.
+  pastAppointmentOffset += 1;
+  const startAt = new Date(
+    Date.now() - pastAppointmentOffset * 60 * 60 * 1_000,
+  );
   const endAt = new Date(startAt.getTime() + 30 * 60 * 1_000);
 
   return prisma.appointment.create({
@@ -341,7 +347,116 @@ describe('API de turnos (e2e)', () => {
       .expect(404);
   });
 
-  it('aísla los turnos entre organizaciones', async () => {    const created = await request(server)
+  it('reprograma un turno y respeta los solapamientos', async () => {
+    const created = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(46)))
+      .expect(201);
+
+    const target = futureIso(48);
+    const rescheduled = await request(server)
+      .patch(`${API}/appointments/${created.body.id}/schedule`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ startAt: target, notes: 'Reprogramado en e2e' })
+      .expect(200);
+
+    expect(rescheduled.body.id).toBe(created.body.id);
+    expect(rescheduled.body.startAt).toBe(target);
+    expect(rescheduled.body.notes).toBe('Reprogramado en e2e');
+    expect(rescheduled.body.clientId).toBeUndefined();
+    expect(rescheduled.body.client.id).toBe(tenantA.clientId);
+
+    // Mover al mismo horario no choca consigo mismo.
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/schedule`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ startAt: target })
+      .expect(200);
+
+    const other = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(50)))
+      .expect(201);
+
+    const overlap = await request(server)
+      .patch(`${API}/appointments/${created.body.id}/schedule`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ startAt: futureIso(50) })
+      .expect(409);
+    expect(overlap.body.error.code).toBe('BOOKING_SLOT_UNAVAILABLE');
+
+    const audit = await prisma.auditLog.findFirst({
+      where: {
+        organizationId: tenantA.organizationId,
+        entityId: created.body.id,
+        action: 'appointment.rescheduled',
+      },
+    });
+    expect(audit).not.toBeNull();
+    expect(other.body.id).not.toBe(created.body.id);
+  });
+
+  it('solo permite reprogramar una vez por concurrencia', async () => {
+    const first = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(52)))
+      .expect(201);
+
+    const second = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(54)))
+      .expect(201);
+
+    const target = futureIso(56);
+    const responses = await Promise.all([
+      request(server)
+        .patch(`${API}/appointments/${first.body.id}/schedule`)
+        .set('Authorization', `Bearer ${tenantA.accessToken}`)
+        .send({ startAt: target }),
+      request(server)
+        .patch(`${API}/appointments/${second.body.id}/schedule`)
+        .set('Authorization', `Bearer ${tenantA.accessToken}`)
+        .send({ startAt: target }),
+    ]);
+
+    const statuses = responses.map((response) => response.status).sort();
+    expect(statuses).toEqual([200, 409]);
+  });
+
+  it('no reprograma turnos terminales ni de otra organización', async () => {
+    const past = await createPastAppointment(tenantA);
+
+    await request(server)
+      .patch(`${API}/appointments/${past.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(200);
+
+    await request(server)
+      .patch(`${API}/appointments/${past.id}/schedule`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ startAt: futureIso(58) })
+      .expect(409);
+
+    const owned = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(60)))
+      .expect(201);
+
+    await request(server)
+      .patch(`${API}/appointments/${owned.body.id}/schedule`)
+      .set('Authorization', `Bearer ${tenantB.accessToken}`)
+      .send({ startAt: futureIso(62) })
+      .expect(404);
+  });
+
+  it('aísla los turnos entre organizaciones', async () => {
+    const created = await request(server)
       .post(`${API}/appointments`)
       .set('Authorization', `Bearer ${tenantA.accessToken}`)
       .send(bookingBody(tenantA, futureIso(30)))

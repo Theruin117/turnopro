@@ -10,9 +10,11 @@ import { AppError, ErrorCode, type RequestMetadata } from '@turnopro/shared';
 
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { computeBookingWindow } from './booking-window';
 import type { AppointmentsQueryDto } from './dto/appointments-query.dto';
 import type { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import type { CreateAppointmentDto } from './dto/create-appointment.dto';
+import type { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
 import type { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 
 const STATUS_LABELS: Record<AppointmentStatus, string> = {
@@ -55,6 +57,13 @@ interface NormalizedBookingInput {
   startAt: Date;
   notes: string | null;
   idempotencyKey: string | null;
+}
+
+interface NormalizedRescheduleInput {
+  employeeId: string;
+  serviceId: string;
+  startAt: Date;
+  notes: string | null;
 }
 
 @Injectable()
@@ -240,7 +249,8 @@ export class AppointmentsService {
     appointmentId: string,
     dto: CancelAppointmentDto,
     meta: RequestMetadata,
-  ): Promise<Appointment> {    const existing = await this.prisma.appointment.findFirst({
+  ): Promise<Appointment> {
+    const existing = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, organizationId },
     });
 
@@ -289,6 +299,223 @@ export class AppointmentsService {
     });
 
     return mapAppointment(cancelled);
+  }
+
+  async reschedule(
+    organizationId: string,
+    actorUserId: string,
+    appointmentId: string,
+    dto: RescheduleAppointmentDto,
+    meta: RequestMetadata,
+  ): Promise<Appointment> {
+    const existing = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, organizationId },
+    });
+
+    if (!existing) {
+      throw new AppError(
+        ErrorCode.NOT_FOUND,
+        404,
+        'El turno no existe en esta organización',
+      );
+    }
+
+    ensureReschedulable(existing.status as AppointmentStatus);
+
+    const input = normalizeRescheduleInput(dto, existing);
+    const updated = await this.rescheduleWithRetry(
+      organizationId,
+      appointmentId,
+      input,
+    );
+
+    await this.audit.record({
+      organizationId,
+      actorUserId,
+      action: 'appointment.rescheduled',
+      entity: 'appointment',
+      entityId: appointmentId,
+      metadata: {
+        previousStartAt: existing.startAt.toISOString(),
+        startAt: updated.startAt.toISOString(),
+        previousEmployeeId: existing.employeeId,
+        employeeId: updated.employeeId,
+        previousServiceId: existing.serviceId,
+        serviceId: updated.serviceId,
+      },
+      ...meta,
+    });
+
+    return mapAppointment(updated);
+  }
+
+  private async rescheduleWithRetry(
+    organizationId: string,
+    appointmentId: string,
+    input: NormalizedRescheduleInput,
+  ): Promise<AppointmentWithRelations> {
+    for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          (tx) =>
+            this.rescheduleInsideTransaction(
+              tx,
+              organizationId,
+              appointmentId,
+              input,
+            ),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            timeout: 15_000,
+          },
+        );
+      } catch (error) {
+        if (isSerializationFailure(error) && attempt < MAX_TRANSACTION_ATTEMPTS) {
+          await delay(10 * attempt);
+          continue;
+        }
+
+        if (isExclusionViolation(error)) {
+          throw new AppError(
+            ErrorCode.BOOKING_SLOT_UNAVAILABLE,
+            409,
+            'El horario seleccionado ya no está disponible',
+          );
+        }
+
+        if (isSerializationFailure(error)) {
+          throw new AppError(
+            ErrorCode.CONFLICT,
+            409,
+            'No se pudo reprogramar el turno por concurrencia; intenta de nuevo',
+          );
+        }
+
+        throw error;
+      }
+    }
+
+    throw new AppError(
+      ErrorCode.CONFLICT,
+      409,
+      'No se pudo reprogramar el turno; intenta de nuevo',
+    );
+  }
+
+  private async rescheduleInsideTransaction(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    appointmentId: string,
+    input: NormalizedRescheduleInput,
+  ): Promise<AppointmentWithRelations> {
+    const appointment = await tx.appointment.findFirst({
+      where: { id: appointmentId, organizationId },
+    });
+
+    if (!appointment) {
+      throw new AppError(
+        ErrorCode.NOT_FOUND,
+        404,
+        'El turno no existe en esta organización',
+      );
+    }
+
+    ensureReschedulable(appointment.status as AppointmentStatus);
+
+    const [employee, service, link] = await Promise.all([
+      tx.employee.findFirst({
+        where: { id: input.employeeId, organizationId, status: 'ACTIVE' },
+      }),
+      tx.service.findFirst({
+        where: { id: input.serviceId, organizationId, status: 'ACTIVE' },
+      }),
+      tx.employeeService.findFirst({
+        where: {
+          organizationId,
+          employeeId: input.employeeId,
+          serviceId: input.serviceId,
+        },
+      }),
+    ]);
+
+    if (!employee) {
+      throw new AppError(
+        ErrorCode.NOT_FOUND,
+        404,
+        'El empleado no existe en esta organización',
+        { field: 'employeeId' },
+      );
+    }
+    if (!service) {
+      throw new AppError(
+        ErrorCode.NOT_FOUND,
+        404,
+        'El servicio no existe en esta organización',
+        { field: 'serviceId' },
+      );
+    }
+    if (!link) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        400,
+        'El empleado no ofrece el servicio seleccionado',
+        { field: 'serviceId' },
+      );
+    }
+
+    const window = computeBookingWindow(input.startAt, service);
+
+    const timeOff = await tx.timeOff.findFirst({
+      where: {
+        organizationId,
+        employeeId: input.employeeId,
+        startsAt: { lt: window.blockedUntilAt },
+        endsAt: { gt: window.blockedFromAt },
+      },
+      select: { id: true },
+    });
+
+    if (timeOff) {
+      throw new AppError(
+        ErrorCode.BOOKING_SLOT_UNAVAILABLE,
+        409,
+        'El empleado no está disponible en ese horario',
+      );
+    }
+
+    const overlap = await tx.appointment.findFirst({
+      where: {
+        organizationId,
+        employeeId: input.employeeId,
+        status: { not: 'CANCELLED' },
+        id: { not: appointmentId },
+        blockedFromAt: { lt: window.blockedUntilAt },
+        blockedUntilAt: { gt: window.blockedFromAt },
+      },
+      select: { id: true },
+    });
+
+    if (overlap) {
+      throw new AppError(
+        ErrorCode.BOOKING_SLOT_UNAVAILABLE,
+        409,
+        'El horario seleccionado ya no está disponible',
+      );
+    }
+
+    return tx.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        employeeId: input.employeeId,
+        serviceId: input.serviceId,
+        startAt: window.startAt,
+        endAt: window.endAt,
+        blockedFromAt: window.blockedFromAt,
+        blockedUntilAt: window.blockedUntilAt,
+        notes: input.notes,
+      },
+      include: appointmentInclude,
+    });
   }
 
   private async createWithRetry(
@@ -413,20 +640,14 @@ export class AppointmentsService {
       );
     }
 
-    const endAt = new Date(input.startAt.getTime() + service.durationMinutes * 60_000);
-    const blockedFromAt = new Date(
-      input.startAt.getTime() - service.bufferBeforeMinutes * 60_000,
-    );
-    const blockedUntilAt = new Date(
-      endAt.getTime() + service.bufferAfterMinutes * 60_000,
-    );
+    const window = computeBookingWindow(input.startAt, service);
 
     const timeOff = await tx.timeOff.findFirst({
       where: {
         organizationId,
         employeeId: input.employeeId,
-        startsAt: { lt: blockedUntilAt },
-        endsAt: { gt: blockedFromAt },
+        startsAt: { lt: window.blockedUntilAt },
+        endsAt: { gt: window.blockedFromAt },
       },
       select: { id: true },
     });
@@ -444,8 +665,8 @@ export class AppointmentsService {
         organizationId,
         employeeId: input.employeeId,
         status: { not: 'CANCELLED' },
-        blockedFromAt: { lt: blockedUntilAt },
-        blockedUntilAt: { gt: blockedFromAt },
+        blockedFromAt: { lt: window.blockedUntilAt },
+        blockedUntilAt: { gt: window.blockedFromAt },
       },
       select: { id: true },
     });
@@ -464,10 +685,10 @@ export class AppointmentsService {
         clientId: input.clientId,
         employeeId: input.employeeId,
         serviceId: input.serviceId,
-        startAt: input.startAt,
-        endAt,
-        blockedFromAt,
-        blockedUntilAt,
+        startAt: window.startAt,
+        endAt: window.endAt,
+        blockedFromAt: window.blockedFromAt,
+        blockedUntilAt: window.blockedUntilAt,
         idempotencyKey: input.idempotencyKey,
         notes: input.notes,
       },
@@ -543,6 +764,50 @@ function normalizeInput(
     startAt,
     notes: dto.notes?.trim() || null,
     idempotencyKey,
+  };
+}
+
+function ensureReschedulable(status: AppointmentStatus): void {
+  if (status === 'PENDING' || status === 'CONFIRMED') {
+    return;
+  }
+
+  throw new AppError(
+    ErrorCode.CONFLICT,
+    409,
+    `No se puede reprogramar un turno ${STATUS_LABELS[status]}`,
+  );
+}
+
+function normalizeRescheduleInput(
+  dto: RescheduleAppointmentDto,
+  existing: AppointmentRecord,
+): NormalizedRescheduleInput {
+  const startAt = new Date(dto.startAt);
+  if (Number.isNaN(startAt.getTime())) {
+    throw new AppError(
+      ErrorCode.VALIDATION_ERROR,
+      400,
+      'La fecha de inicio no es válida',
+      { field: 'startAt' },
+    );
+  }
+
+  if (startAt.getTime() <= Date.now()) {
+    throw new AppError(
+      ErrorCode.VALIDATION_ERROR,
+      400,
+      'El turno debe comenzar en el futuro',
+      { field: 'startAt' },
+    );
+  }
+
+  return {
+    employeeId: dto.employeeId ?? existing.employeeId,
+    serviceId: dto.serviceId ?? existing.serviceId,
+    startAt,
+    notes:
+      dto.notes === undefined ? existing.notes : dto.notes.trim() || null,
   };
 }
 
