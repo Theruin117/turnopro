@@ -208,9 +208,13 @@ Crea de forma idempotente:
 - empleada ficticia “Ana López (demo)”;
 - vínculo empleada-servicio;
 - disponibilidad de lunes a viernes de 09:00 a 18:00;
-- cliente ficticio “Cliente Demo”.
+- cliente ficticio “Cliente Demo”;
+- seis turnos de demostración relativos a la fecha actual (pasados y futuros,
+  con estados `CONFIRMED`, `PENDING`, `COMPLETED`, `NO_SHOW` y `CANCELLED`),
+  identificados por `idempotencyKey` (`seed-demo-01` … `seed-demo-06`) y sin
+  solapamientos para respetar la restricción de exclusión.
 
-Todos los datos son inventados y sólo existen en desarrollo. El seed puede ejecutarse varias veces sin duplicar registros.
+Todos los datos son inventados y sólo existen en desarrollo. El seed puede ejecutarse varias veces sin duplicar registros. El comando respeta `NODE_ENV`: con `NODE_ENV=production` se niega a ejecutarse.
 
 ## 8. Consultas y transacciones
 
