@@ -1,7 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm exec turbo run build --filter=@turnopro/api",
+  "outputDirectory": "public",
   "functions": {
     "api/[...path].js": {
       "memory": 1024,

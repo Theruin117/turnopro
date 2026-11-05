@@ -4,16 +4,25 @@
   "globalEnv": [
     "NODE_ENV",
     "API_PUBLIC_URL",
-    "NEXT_PUBLIC_API_URL"
+    "NEXT_PUBLIC_API_URL",
+    "API_PROXY_TARGET"
   ],
   "globalPassThroughEnv": [
     "DATABASE_URL",
     "REDIS_URL",
     "JWT_ACCESS_SECRET",
+    "JWT_ACCESS_TTL_SECONDS",
+    "REFRESH_TOKEN_TTL_DAYS",
     "WEB_ORIGIN",
     "COOKIE_SECURE",
     "COOKIE_DOMAIN",
     "LOG_LEVEL",
+    "APP_VERSION",
+    "API_PREFIX",
+    "SWAGGER_ENABLED",
+    "TRUST_PROXY",
+    "RATE_LIMIT_TTL_SECONDS",
+    "RATE_LIMIT_LIMIT",
     "SEED_OWNER_PASSWORD"
   ],
   "tasks": {
