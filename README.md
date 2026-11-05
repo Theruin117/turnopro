@@ -3,7 +3,7 @@
 Base ejecutable de un SaaS multi-tenant para gestión de turnos y citas. El repositorio entrega la **fundación técnica** completa —autenticación, aislamiento por organización, RBAC, motor de reservas transaccional y trabajos asíncronos— y el **módulo de agenda y disponibilidad** sobre el que se construye el resto del producto.
 
 - Repositorio: <https://github.com/Theruin117/turnopro>
-- Documentación: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/DATABASE.md`](docs/DATABASE.md) · [`docs/API.md`](docs/API.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Documentación: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/DATABASE.md`](docs/DATABASE.md) · [`docs/API.md`](docs/API.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - Guía para agentes y colaboradores: [`AGENTS.md`](AGENTS.md)
 
 ## Qué incluye hoy
