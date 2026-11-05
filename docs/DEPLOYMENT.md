@@ -99,11 +99,31 @@ Todas las filas deben mostrar `rowsecurity = true`.
 
 Proyecto `turnopro-api`:
 
-- Root directory: raíz del repositorio.
-- Framework: sin preset.
+- Root directory: `apps/api`.
+- Framework: NestJS (detección zero-config de Vercel).
 - Install: `pnpm install --frozen-lockfile`.
-- Build: `pnpm exec turbo run build --filter=@turnopro/api`.
-- Función: `api/[...path].js`, 1024 MB y 60 s (`vercel.json`).
+- Build: `cd ../.. && pnpm exec turbo run build --filter=@turnopro/api`.
+- Función: una sola Vercel Function generada por el preset NestJS a partir
+  de `src/main.ts`.
+
+Vercel detecta el framework por `@nestjs/core` y `src/main.ts`, compila el
+proyecto y enruta todas las peticiones a una única función. No hay que
+declarar `functions` ni un `outputDirectory`: el preset construye la salida.
+El `buildCommand` explícito es necesario en el monorepo para compilar antes
+las dependencias de workspace (`@turnopro/database`, `@turnopro/shared` y
+`@turnopro/contracts`); sin él sólo se ejecutaría `nest build`.
+
+`apps/api/vercel.json` fija el preset y el comando de build para que la
+configuración viva en el repositorio:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nestjs",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm exec turbo run build --filter=@turnopro/api"
+}
+```
 
 Variables de entorno (Production and Preview):
 
