@@ -1,4 +1,9 @@
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, SLUG_REGEX } from '@turnopro/shared';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  ROLES,
+  SLUG_REGEX,
+} from '@turnopro/shared';
 import { z } from 'zod';
 
 const emailSchema = z
@@ -68,3 +73,18 @@ export const updateOrganizationSchema = z
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+
+/** Estados que un miembro existente puede recibir desde la API. */
+export const MEMBER_STATUS_TARGETS = ['ACTIVE', 'SUSPENDED'] as const;
+export type MemberStatusTarget = (typeof MEMBER_STATUS_TARGETS)[number];
+
+export const updateMemberSchema = z
+  .object({
+    role: z.enum(ROLES).optional(),
+    status: z.enum(MEMBER_STATUS_TARGETS).optional(),
+  })
+  .refine((value) => value.role !== undefined || value.status !== undefined, {
+    message: 'Envía al menos un campo para actualizar',
+  });
+
+export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;

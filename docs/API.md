@@ -164,6 +164,26 @@ Permiso: `members:read`. Paginado.
 }
 ```
 
+### `PATCH /organizations/current/members/:id`
+
+Permiso: `members:update`. Cuerpo con al menos uno de estos campos:
+
+```json
+{ "role": "MANAGER", "status": "ACTIVE" }
+```
+
+- Roles admitidos: `OWNER`, `ADMIN`, `MANAGER`, `STAFF`.
+- Estados admitidos: `ACTIVE`, `SUSPENDED`. `INVITED` queda reservado para
+  invitaciones (Fase 3) y responde `400`.
+- No puedes modificar tu propia membresía: `409 CONFLICT`.
+- Solo un `OWNER` puede modificar a otro `OWNER` o asignar el rol `OWNER`; un
+  `ADMIN` recibe `403 FORBIDDEN`.
+- La organización debe conservar al menos un `OWNER` activo: `409 CONFLICT`.
+- La membresía debe pertenecer a la organización activa: `404 NOT_FOUND`.
+- Suspender a un miembro invalida su sesión en la siguiente petición, porque el
+  guard revalida el estado contra la base de datos.
+- Se audita como `member.updated` con el rol y estado anteriores y nuevos.
+
 ## 3. Turnos
 
 Permisos: lectura `appointments:read`; creación/cancelación `appointments:write`.
@@ -180,6 +200,10 @@ Parámetros de consulta:
 | `to` | ISO 8601 | Fin máximo (`startAt < to`) |
 | `status` | enum | `PENDING`, `CONFIRMED`, `COMPLETED`, `CANCELLED`, `NO_SHOW` |
 | `employeeId` | UUID | Filtra por empleado del tenant |
+| `clientId` | UUID | Filtra el historial del cliente en el tenant |
+
+Si `clientId` no pertenece a la organización activa, la respuesta es
+`404 NOT_FOUND` aunque el UUID sea válido.
 
 Devuelve un `PaginatedResponse<Appointment>` ordenado por `startAt` ascendente.
 
@@ -487,7 +511,104 @@ El fin debe ser posterior al inicio. El bloqueo impide slots y reservas que se s
 
 Permiso: `employees:write`. Elimina un bloqueo de la organización activa. Responde `204 No Content`; si no pertenece al tenant, `404 NOT_FOUND`.
 
-## 6. Salud
+## 6. Reportes
+
+Permiso: `reports:read` (`OWNER`, `ADMIN` y `MANAGER`). `STAFF` recibe `403 FORBIDDEN`.
+
+### `GET /reports/summary`
+
+Parámetros opcionales:
+
+| Parámetro | Tipo | Descripción |
+| --- | --- | --- |
+| `from` | ISO 8601 | Inicio del rango; por defecto hace 29 días |
+| `to` | ISO 8601 | Fin exclusivo; por defecto el inicio del día siguiente |
+
+Reglas:
+
+- Debe cumplirse `from < to` y el rango no puede superar **366 días**.
+- El rango por defecto son los últimos 30 días calendario en la zona horaria de
+  la organización.
+- `totals.revenueCents` suma `priceCents` solo de turnos `COMPLETED`.
+- `cancellationRate` y `noShowRate` se calculan sobre el total de turnos del
+  rango (0 cuando no hay turnos).
+- `byEmployee.bookedMinutes` excluye turnos `CANCELLED`; `availableMinutes`
+  suma las reglas horarias del rango y descuenta `time_off`.
+- `byDay` agrupa por la fecha local de `startAt` e incluye solo días con turnos.
+
+Respuesta:
+
+```json
+{
+  "range": {
+    "from": "2026-10-06T00:00:00.000Z",
+    "to": "2026-11-06T00:00:00.000Z"
+  },
+  "totals": {
+    "appointments": 42,
+    "pending": 3,
+    "confirmed": 10,
+    "completed": 24,
+    "cancelled": 4,
+    "noShow": 1,
+    "revenueCents": 1200000,
+    "cancellationRate": 0.0952,
+    "noShowRate": 0.0238
+  },
+  "byEmployee": [
+    {
+      "employeeId": "uuid",
+      "name": "Ana López",
+      "appointments": 30,
+      "completed": 18,
+      "bookedMinutes": 900,
+      "availableMinutes": 2160,
+      "occupancyRate": 0.4167,
+      "revenueCents": 900000
+    }
+  ],
+  "byDay": [
+    { "date": "2026-11-04", "appointments": 5, "revenueCents": 150000 }
+  ]
+}
+```
+
+## 7. Auditoría
+
+Permiso: `audit:read` (`OWNER` y `ADMIN`). `STAFF` recibe `403 FORBIDDEN`.
+
+### `GET /audit`
+
+Parámetros opcionales: `page`, `pageSize`, `entity`, `action`, `from`, `to`.
+Devuelve los eventos de la organización ordenados por `createdAt` descendente.
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "action": "appointment.status_changed",
+      "entity": "appointment",
+      "entityId": "uuid",
+      "metadata": { "from": "CONFIRMED", "to": "COMPLETED" },
+      "ip": "203.0.113.10",
+      "userAgent": "Mozilla/5.0",
+      "createdAt": "2026-11-04T18:00:00.000Z",
+      "actor": { "id": "uuid", "name": "Ana Torres", "email": "ana@example.com" }
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1,
+  "totalPages": 1
+}
+```
+
+`metadata` contiene solo el contexto de negocio que ya registra cada acción; no
+incluye tokens, contraseñas ni cuerpos completos. `actor` es `null` si el usuario
+fue eliminado. Un rango `from >= to` responde `400 VALIDATION_ERROR`.
+
+## 8. Salud
 
 ### `GET /health/live`
 
@@ -510,7 +631,7 @@ Comprueba PostgreSQL y Redis (y estado del proceso). `200` si todo está arriba;
 
 El worker expone las mismas rutas en `http://localhost:3002/health/live` y `/health/ready`, con checks de base de datos, Redis y worker.
 
-## 7. Formato de errores
+## 9. Formato de errores
 
 Todos los errores comparten la misma envoltura:
 
@@ -552,7 +673,7 @@ Códigos disponibles:
 
 Nunca se devuelven stack traces, SQL ni detalles internos.
 
-## 8. Paginación
+## 10. Paginación
 
 Todas las listas paginadas usan:
 
@@ -568,7 +689,7 @@ Todas las listas paginadas usan:
 
 `pageSize` máximo: 100.
 
-## 9. Rate limiting
+## 11. Rate limiting
 
 Límites por IP (ventana deslizante en memoria):
 
@@ -582,7 +703,7 @@ Límites por IP (ventana deslizante en memoria):
 
 Al exceder: `429 RATE_LIMITED`.
 
-## 10. Ejemplos con cURL
+## 12. Ejemplos con cURL
 
 ```bash
 # Registro
@@ -621,7 +742,7 @@ curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3001/api/v1/auth/
   -H 'Origin: http://localhost:3000'
 ```
 
-## 11. Contratos y versionado
+## 13. Contratos y versionado
 
 Los tipos públicos viven en `packages/contracts` y los esquemas Zod en el mismo paquete. La versión actual es `v1` en la ruta.
 

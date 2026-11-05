@@ -24,6 +24,7 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { ServicesModule } from './modules/services/services.module';
 
 @Module({
@@ -105,6 +106,7 @@ import { ServicesModule } from './modules/services/services.module';
     EmployeesModule,
     ClientsModule,
     OrganizationsModule,
+    ReportsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

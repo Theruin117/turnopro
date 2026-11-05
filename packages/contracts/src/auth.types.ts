@@ -1,4 +1,4 @@
-import type { Permission, Role } from '@turnopro/shared';
+import type { MembershipStatus, Permission, Role } from '@turnopro/shared';
 
 export interface AuthUser {
   id: string;
@@ -41,7 +41,7 @@ export interface AuthContext {
 export interface MembershipListItem {
   id: string;
   role: Role;
-  status: string;
+  status: MembershipStatus;
   createdAt: string;
   user: {
     id: string;
