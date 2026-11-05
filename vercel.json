@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm exec turbo run build --filter=@turnopro/api",
+  "functions": {
+    "api/[...path].js": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "{apps/api/dist,packages/database/dist,packages/database/prisma,packages/database/node_modules/.prisma/client,packages/database/node_modules/@prisma/client,packages/shared/dist,packages/contracts/dist}/**"
+    }
+  }
+}

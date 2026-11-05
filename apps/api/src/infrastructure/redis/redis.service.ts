@@ -5,15 +5,25 @@ import { AppConfigService } from '../../config/app-config.service';
 
 /**
  * Acceso único a Redis para la API.
- * La conexión es perezosa: la API puede arrancar aunque Redis esté caído y
- * `/health/ready` lo reporta como dependencia degradada.
+ *
+ * `REDIS_URL` es opcional: la API puede desplegarse en un runtime serverless
+ * sin Redis (el worker BullMQ vive en otro host). Cuando no está configurado,
+ * `/health/ready` reporta la dependencia como no configurada en lugar de
+ * intentar conectarse. La conexión es perezosa: la API arranca aunque Redis
+ * esté caído.
  */
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  private readonly client: Redis;
+  private readonly client: Redis | null;
 
   constructor(config: AppConfigService) {
+    if (!config.redisUrl) {
+      this.logger.warn('REDIS_URL no configurada: la API funcionará sin Redis.');
+      this.client = null;
+      return;
+    }
+
     this.client = new Redis(config.redisUrl, {
       lazyConnect: true,
       maxRetriesPerRequest: 2,
@@ -26,29 +36,41 @@ export class RedisService implements OnModuleDestroy {
     });
   }
 
+  get configured(): boolean {
+    return this.client !== null;
+  }
+
   get connection(): Redis {
+    if (!this.client) {
+      throw new Error('Redis no está configurado en este despliegue.');
+    }
     return this.client;
   }
 
   async ping(): Promise<number> {
+    const client = this.connection;
     const startedAt = performance.now();
-    if (this.client.status === 'wait' || this.client.status === 'end') {
-      await this.client.connect();
+    if (client.status === 'wait' || client.status === 'end') {
+      await client.connect();
     }
-    await this.client.ping();
+    await client.ping();
     return Math.round((performance.now() - startedAt) * 100) / 100;
   }
 
   async isHealthy(): Promise<boolean> {
-    if (this.client.status === 'wait' || this.client.status === 'end') {
-      await this.client.connect();
+    const client = this.client;
+    if (!client) {
+      return false;
     }
-    const reply = await this.client.ping();
+    if (client.status === 'wait' || client.status === 'end') {
+      await client.connect();
+    }
+    const reply = await client.ping();
     return reply === 'PONG';
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.client.status !== 'end') {
+    if (this.client && this.client.status !== 'end') {
       await this.client.quit();
     }
   }

@@ -23,10 +23,16 @@ export const envSchema = z.object({
     .string()
     .min(1)
     .refine((value) => /^postgres(ql)?:\/\//.test(value), 'DATABASE_URL debe ser una URL PostgreSQL'),
-  REDIS_URL: z
-    .string()
-    .min(1)
-    .refine((value) => /^rediss?:\/\//.test(value), 'REDIS_URL debe ser una URL Redis'),
+  // Opcional en la API: en un despliegue serverless puede no haber Redis.
+  // Cuando falta, `/health/ready` reporta la dependencia como no configurada.
+  REDIS_URL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z
+      .string()
+      .trim()
+      .refine((value) => /^rediss?:\/\//.test(value), 'REDIS_URL debe ser una URL Redis')
+      .optional(),
+  ),
   JWT_ACCESS_SECRET: z
     .string()
     .min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres'),

@@ -53,7 +53,7 @@ export class AppConfigService {
     return this.config.get('DATABASE_URL', { infer: true });
   }
 
-  get redisUrl(): string {
+  get redisUrl(): string | undefined {
     return this.config.get('REDIS_URL', { infer: true });
   }
 

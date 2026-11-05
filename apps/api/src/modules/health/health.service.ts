@@ -26,9 +26,13 @@ export class HealthService {
   }
 
   async readiness(): Promise<HealthReport> {
+    const redisCheck: Promise<HealthCheckResult> = this.config.redisUrl
+      ? this.timed(() => this.redis.isHealthy())
+      : Promise.resolve({ status: 'down', message: 'Redis no configurado en este despliegue' });
+
     const [database, redis] = await Promise.all([
       this.timed(() => this.prisma.isHealthy()),
-      this.timed(() => this.redis.isHealthy()),
+      redisCheck,
     ]);
 
     const checks = { database, redis };

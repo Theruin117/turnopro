@@ -7,6 +7,7 @@ out/
 coverage/
 .turbo/
 *.tsbuildinfo
+.vercel/
 
 # Entorno y secretos — NUNCA commitear
 .env
@@ -38,3 +39,5 @@ packages/database/prisma/*.db-journal
 # Next
 apps/web/.next/
 apps/web/next-env.d.ts
+.vercel
+.env*
