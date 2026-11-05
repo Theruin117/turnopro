@@ -6,9 +6,8 @@
   "outputDirectory": "public",
   "functions": {
     "api/[...path].js": {
-      "memory": 1024,
       "maxDuration": 60,
-      "includeFiles": "{apps/api/dist,packages/database/dist,packages/database/prisma,packages/database/node_modules/.prisma/client,packages/database/node_modules/@prisma/client,packages/shared/dist,packages/contracts/dist}/**"
+      "includeFiles": "{apps/api/dist,packages/database/dist,packages/shared/dist,packages/contracts/dist}/**"
     }
   }
 }
