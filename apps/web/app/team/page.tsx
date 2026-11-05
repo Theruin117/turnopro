@@ -3,7 +3,12 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { MembershipListItem, PaginatedResponse } from '@turnopro/contracts';
+import type {
+  MembershipListItem,
+  PaginatedResponse,
+  UpdateMemberInput,
+} from '@turnopro/contracts';
+import { ROLES, type Role } from '@turnopro/shared';
 import {
   Alert,
   AlertDescription,
@@ -15,6 +20,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Label,
+  Select,
   Skeleton,
   Table,
   TableBody,
@@ -40,6 +47,10 @@ const ROLE_ORDER = ['OWNER', 'ADMIN', 'MANAGER', 'STAFF'];
 
 const PAGE_SIZE = 20;
 
+function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError ? cause.message : fallback;
+}
+
 export default function TeamPage() {
   return (
     <RequireAuth>
@@ -54,8 +65,78 @@ function TeamView() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MembershipListItem | null>(null);
+  const [draftRole, setDraftRole] = useState<Role>('STAFF');
+  const [draftStatus, setDraftStatus] = useState<'ACTIVE' | 'SUSPENDED'>('ACTIVE');
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const canRead = hasPermission('members:read');
+  const canUpdate = hasPermission('members:update');
+  const isOwner = session?.membership.role === 'OWNER';
+
+  const activeOwners =
+    members?.items.filter(
+      (member) => member.role === 'OWNER' && member.status === 'ACTIVE',
+    ).length ?? 0;
+
+  function isLastActiveOwner(member: MembershipListItem): boolean {
+    return (
+      member.role === 'OWNER' &&
+      member.status === 'ACTIVE' &&
+      activeOwners <= 1
+    );
+  }
+
+  function canEditMember(member: MembershipListItem): boolean {
+    if (!canUpdate || !session) return false;
+    if (member.user.id === session.user.id) return false;
+    if (!isOwner && member.role === 'OWNER') return false;
+    if (isLastActiveOwner(member)) return false;
+    return true;
+  }
+
+  function openEditor(member: MembershipListItem): void {
+    setEditing(member);
+    setDraftRole(member.role);
+    setDraftStatus(member.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE');
+    setActionError(null);
+  }
+
+  function closeEditor(): void {
+    setEditing(null);
+    setActionError(null);
+  }
+
+  async function saveMember(): Promise<void> {
+    if (!editing) return;
+
+    const body: UpdateMemberInput = {};
+    if (draftRole !== editing.role) body.role = draftRole;
+    if (editing.status !== 'INVITED' && draftStatus !== editing.status) {
+      body.status = draftStatus;
+    }
+
+    if (Object.keys(body).length === 0) {
+      closeEditor();
+      return;
+    }
+
+    setSaving(true);
+    setActionError(null);
+    try {
+      await apiFetch(`/organizations/current/members/${editing.id}`, {
+        method: 'PATCH',
+        body,
+      });
+      closeEditor();
+      await load(page);
+    } catch (cause) {
+      setActionError(errorMessage(cause, 'No se pudo actualizar al miembro.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const load = useCallback(
     async (targetPage: number) => {
@@ -83,7 +164,6 @@ function TeamView() {
 
   useEffect(() => {
     // Carga de datos remotos al montar o cambiar de página.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(page);
   }, [load, page]);
 
@@ -159,6 +239,9 @@ function TeamView() {
                       <TableHead>Rol</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead>Alta</TableHead>
+                      {canUpdate ? (
+                        <TableHead className="text-right">Acciones</TableHead>
+                      ) : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -200,6 +283,27 @@ function TeamView() {
                             timeZone: session.organization.timezone,
                           }).format(new Date(member.createdAt))}
                         </TableCell>
+                        {canUpdate ? (
+                          <TableCell className="text-right">
+                            {canEditMember(member) ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditor(member)}
+                              >
+                                Editar
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {member.user.id === session.user.id
+                                  ? 'Tu cuenta'
+                                  : isLastActiveOwner(member)
+                                    ? 'Último OWNER'
+                                    : 'Sin permiso'}
+                              </span>
+                            )}
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -257,11 +361,96 @@ function TeamView() {
             ))}
           </ul>
           <p className="mt-4 text-xs text-muted-foreground">
-            La invitación y edición de miembros se habilitarán junto con el módulo de
-            identidad avanzada. Esta pantalla no incluye botones sin funcionalidad.
+            La invitación de nuevos miembros sigue pendiente de la Fase 3, cuando exista
+            un proveedor de correo verificado. El cambio de rol y la suspensión ya se
+            aplican contra la API y quedan auditados.
           </p>
         </CardContent>
       </Card>
+
+      {editing ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="member-editor-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) {
+              closeEditor();
+            }
+          }}
+        >
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle id="member-editor-title">Editar miembro</CardTitle>
+              <CardDescription>
+                {editing.user.name} · {editing.user.email}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {actionError ? (
+                <Alert variant="destructive">
+                  <AlertTitle>No se pudo actualizar</AlertTitle>
+                  <AlertDescription>{actionError}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label htmlFor="member-role">Rol</Label>
+                <Select
+                  id="member-role"
+                  value={draftRole}
+                  onChange={(event) => setDraftRole(event.target.value as Role)}
+                >
+                  {ROLES.filter((role) => isOwner || role !== 'OWNER').map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role] ?? role}
+                    </option>
+                  ))}
+                </Select>
+                {!isOwner ? (
+                  <p className="text-xs text-muted-foreground">
+                    Solo un propietario puede asignar el rol Propietario.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="member-status">Estado</Label>
+                <Select
+                  id="member-status"
+                  value={draftStatus}
+                  disabled={editing.status === 'INVITED'}
+                  onChange={(event) =>
+                    setDraftStatus(event.target.value as 'ACTIVE' | 'SUSPENDED')
+                  }
+                >
+                  <option value="ACTIVE">Activo</option>
+                  <option value="SUSPENDED">Suspendido</option>
+                </Select>
+                {editing.status === 'INVITED' ? (
+                  <p className="text-xs text-muted-foreground">
+                    La membresía está invitada; el estado se habilita cuando acepte.
+                  </p>
+                ) : draftStatus === 'SUSPENDED' ? (
+                  <p className="text-xs text-muted-foreground">
+                    Al suspenderlo, su sesión se invalida en la siguiente petición.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap gap-2 border-t pt-4">
+                <Button loading={saving} onClick={() => void saveMember()}>
+                  Guardar cambios
+                </Button>
+                <Button variant="ghost" disabled={saving} onClick={closeEditor}>
+                  Cancelar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }
