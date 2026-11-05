@@ -137,6 +137,13 @@ Variables de entorno (Production and Preview):
 | `SWAGGER_ENABLED` | `false` |
 | `LOG_LEVEL` | `info` |
 | `TRUST_PROXY` | `true` |
+| `NODE_OPTIONS` | `--experimental-require-module` |
+
+`NODE_OPTIONS=--experimental-require-module` es necesario porque NestJS 12
+publica sus paquetes como ESM y la API se compila a CommonJS. El runtime de
+Vercel usa una versión de Node 22 que no habilita `require()` de módulos ESM
+por defecto; con el flag, `require('@nestjs/core')` funciona sin cambiar el
+sistema de módulos del proyecto.
 
 `REDIS_URL` es opcional en la API. Si no se define, `/health/ready` responde
 `degraded` con Redis como dependencia no configurada, pero el resto de la API
