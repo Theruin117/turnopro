@@ -158,6 +158,21 @@ vercel env add COOKIE_SECURE production
 vercel deploy --prod
 ```
 
+> **Cuidado al crear variables desde un archivo `.env`.** No hagas
+> `set -a; . env_file` cuando el valor contiene `&` sin comillas (por ejemplo
+> `?pgbouncer=true&connection_limit=1`): bash interpreta el `&` como trabajo en
+> segundo plano y la variable queda vacía. `vercel env add --value
+> "$DATABASE_URL"` guardaría entonces un secreto vacío y la API fallaría al
+> arrancar con `DATABASE_URL: Too small`. Lee el valor con un script
+> (`node`/`python`) o cita la asignación completa:
+>
+> ```bash
+> vercel env add DATABASE_URL production --value "$(grep '^SUPABASE_POOLER_URL=' env_file | cut -d= -f2-)"
+> ```
+>
+> Tras desplegar, `GET /api/v1/health/live` debe responder `200`; un `500` con
+> "Configuración de entorno inválida" indica una variable obligatoria vacía.
+
 ## 3. Web en Vercel
 
 Proyecto `turnopro-web`:
@@ -211,7 +226,9 @@ curl -i -X POST https://<api>.vercel.app/api/v1/auth/login \
 Comprobaciones:
 
 - `health/live` responde `200` con `status: ok`.
-- `health/ready` responde `200`; Redis aparece como no configurado/`down`.
+- `health/ready` responde `200` con Redis configurado; sin `REDIS_URL`, responde
+  `503` con `status: degraded`, `database.status: up` y Redis como no
+  configurado.
 - El login devuelve `accessToken` y la cookie `refresh_token` con
   `HttpOnly`, `Secure` y `SameSite=Lax`.
 - La web carga la agenda con los datos del seed.
