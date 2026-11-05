@@ -4,10 +4,16 @@ import { AgendaView } from './agenda-view';
 
 export const metadata = { title: 'Agenda' };
 
-export default function AgendaPage() {
+export default async function AgendaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  const params = await searchParams;
+
   return (
     <RequireAuth>
-      <AgendaView />
+      <AgendaView initialClientId={params.clientId} />
     </RequireAuth>
   );
 }

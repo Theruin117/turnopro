@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type {
-  Appointment,
-  AvailabilitySlotsResponse,
-  Client,
-  Employee,
-  PaginatedResponse,
+import {
+  APPOINTMENT_TRANSITIONS,
+  type Appointment,
+  type AppointmentStatus,
+  type AvailabilitySlotsResponse,
+  type Client,
+  type Employee,
+  type PaginatedResponse,
 } from '@turnopro/contracts';
 import {
   Alert,
@@ -31,6 +33,7 @@ import {
 } from '@turnopro/ui';
 import {
   addDaysToDateKey,
+  formatDateKeyInTimeZone,
   todayInTimeZone,
   zonedDateTimeToUtc,
 } from '@turnopro/shared';
@@ -57,6 +60,32 @@ const STATUS_VARIANTS: Record<
   NO_SHOW: 'secondary',
 };
 
+/** Acciones manuales permitidas desde la agenda; `CANCELLED` usa el flujo con motivo. */
+const ACTION_TARGETS: readonly AppointmentStatus[] = [
+  'CONFIRMED',
+  'COMPLETED',
+  'NO_SHOW',
+  'CANCELLED',
+];
+
+const ACTION_LABELS: Partial<Record<AppointmentStatus, string>> = {
+  CONFIRMED: 'Confirmar',
+  COMPLETED: 'Completar',
+  NO_SHOW: 'No asistió',
+  CANCELLED: 'Cancelar',
+};
+
+function isTerminal(status: AppointmentStatus): boolean {
+  return APPOINTMENT_TRANSITIONS[status].length === 0;
+}
+
+function allowedActions(status: AppointmentStatus): AppointmentStatus[] {
+  return ACTION_TARGETS.filter((target) =>
+    APPOINTMENT_TRANSITIONS[status].includes(target),
+  );
+}
+
+
 function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof ApiError ? cause.message : fallback;
 }
@@ -77,7 +106,11 @@ function formatLongDate(dateKey: string): string {
   }).format(new Date(`${dateKey}T12:00:00.000Z`));
 }
 
-export function AgendaView() {
+export function AgendaView({
+  initialClientId,
+}: {
+  initialClientId?: string;
+}) {
   const { session, hasPermission } = useAuth();
   const timezone = session?.organization.timezone ?? 'America/Mexico_City';
   const canWrite = hasPermission('appointments:write');
@@ -97,6 +130,15 @@ export function AgendaView() {
   const [notes, setNotes] = useState('');
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleEmployeeId, setRescheduleEmployeeId] = useState('');
+  const [rescheduleStart, setRescheduleStart] = useState<string | null>(null);
+  const [rescheduleSlots, setRescheduleSlots] = useState<string[]>([]);
+  const [loadingRescheduleSlots, setLoadingRescheduleSlots] = useState(false);
+  const [savingReschedule, setSavingReschedule] = useState(false);
+  const [now, setNow] = useState(0);
 
   const activeEmployees = useMemo(
     () => employees.filter((employee) => employee.status === 'ACTIVE'),
@@ -128,7 +170,16 @@ export function AgendaView() {
         setEmployees(employeePage.items);
         setClients(clientPage.items);
         setEmployeeId((current) => current || employeePage.items[0]?.id || '');
-        setClientId((current) => current || clientPage.items[0]?.id || '');
+        setClientId((current) => {
+          if (current) return current;
+          if (
+            initialClientId &&
+            clientPage.items.some((item) => item.id === initialClientId)
+          ) {
+            return initialClientId;
+          }
+          return clientPage.items[0]?.id || '';
+        });
       })
       .catch((cause) => {
         if (active) {
@@ -141,7 +192,7 @@ export function AgendaView() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialClientId]);
 
   useEffect(() => {
     // Mantiene el servicio seleccionado dentro de la oferta del empleado.
@@ -214,6 +265,50 @@ export function AgendaView() {
     setSelectedStart(null);
   }, [date, employeeId, serviceId]);
 
+  useEffect(() => {
+    // Mantiene la referencia temporal para habilitar acciones al comenzar el turno.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!rescheduling || !rescheduleDate || !rescheduleEmployeeId) {
+      return;
+    }
+
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingRescheduleSlots(true);
+
+    const query = new URLSearchParams({
+      employeeId: rescheduleEmployeeId,
+      serviceId: rescheduling.service.id,
+      date: rescheduleDate,
+    });
+
+    apiFetch<AvailabilitySlotsResponse>(`/availability/slots?${query.toString()}`)
+      .then((response) => {
+        if (active) {
+          setRescheduleSlots(response.slots.map((slot) => slot.startAt));
+        }
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setRescheduleSlots([]);
+        setError(errorMessage(cause, 'No se pudieron calcular los horarios disponibles'));
+      })
+      .finally(() => {
+        if (active) setLoadingRescheduleSlots(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [rescheduling, rescheduleDate, rescheduleEmployeeId]);
+
+
   async function book(): Promise<void> {
     if (!selectedStart || !employeeId || !serviceId || !clientId) {
       setError('Selecciona un horario y un cliente para reservar');
@@ -257,6 +352,99 @@ export function AgendaView() {
     } catch (cause) {
       setError(errorMessage(cause, 'No se pudo cancelar el turno'));
     }
+  }
+
+  async function changeStatus(
+    appointment: Appointment,
+    status: AppointmentStatus,
+  ): Promise<void> {
+    if (updatingId) return;
+
+    const snapshot = appointments;
+    setUpdatingId(appointment.id);
+    setError(null);
+    // Actualización optimista: la tarjeta refleja el nuevo estado al instante.
+    setAppointments((current) =>
+      current.map((item) =>
+        item.id === appointment.id ? { ...item, status } : item,
+      ),
+    );
+
+    try {
+      await apiFetch(`/appointments/${appointment.id}/status`, {
+        method: 'PATCH',
+        body: { status },
+      });
+      await Promise.all([loadSlots(), loadAppointments()]);
+    } catch (cause) {
+      // Rollback al estado confirmado por el servidor antes del intento.
+      setAppointments(snapshot);
+      setError(errorMessage(cause, 'No se pudo cambiar el estado del turno'));
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  function openReschedule(appointment: Appointment): void {
+    const selectable = activeEmployees.some(
+      (employee) => employee.id === appointment.employee.id,
+    )
+      ? appointment.employee.id
+      : (activeEmployees[0]?.id ?? '');
+
+    setRescheduling(appointment);
+    setRescheduleEmployeeId(selectable);
+    setRescheduleDate(
+      formatDateKeyInTimeZone(new Date(appointment.startAt), timezone),
+    );
+    setRescheduleStart(null);
+    setRescheduleSlots([]);
+    setError(null);
+  }
+
+  function closeReschedule(): void {
+    setRescheduling(null);
+    setRescheduleDate('');
+    setRescheduleEmployeeId('');
+    setRescheduleStart(null);
+    setRescheduleSlots([]);
+  }
+
+  async function saveReschedule(): Promise<void> {
+    if (!rescheduling || !rescheduleStart || !rescheduleEmployeeId) {
+      setError('Selecciona un horario disponible para reprogramar');
+      return;
+    }
+
+    setSavingReschedule(true);
+    setError(null);
+    try {
+      await apiFetch(`/appointments/${rescheduling.id}/schedule`, {
+        method: 'PATCH',
+        body: {
+          startAt: rescheduleStart,
+          employeeId: rescheduleEmployeeId,
+        },
+      });
+      closeReschedule();
+      await Promise.all([loadSlots(), loadAppointments()]);
+    } catch (cause) {
+      setError(errorMessage(cause, 'No se pudo reprogramar el turno'));
+    } finally {
+      setSavingReschedule(false);
+    }
+  }
+
+  function actionDisabled(
+    appointment: Appointment,
+    target: AppointmentStatus,
+  ): boolean {
+    // Completar o marcar inasistencia antes de que empiece el turno no tiene
+    // sentido operativo; la API también lo rechaza con 409.
+    if (target === 'COMPLETED' || target === 'NO_SHOW') {
+      return new Date(appointment.startAt).getTime() > now;
+    }
+    return false;
   }
 
   const selectedService = availableServices.find((service) => service.id === serviceId) ?? null;
@@ -510,19 +698,52 @@ export function AgendaView() {
                     {appointment.notes ? (
                       <p className="mt-2 text-xs text-muted-foreground">{appointment.notes}</p>
                     ) : null}
-                    {canWrite &&
-                    appointment.status !== 'CANCELLED' &&
-                    appointment.status !== 'COMPLETED' ? (
+                    {canWrite && !isTerminal(appointment.status) ? (
                       <>
                         <Separator className="my-2" />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          onClick={() => void cancel(appointment)}
-                        >
-                          Cancelar turno
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          {allowedActions(appointment.status).map((target) => (
+                            <Button
+                              key={target}
+                              variant={
+                                target === 'CANCELLED'
+                                  ? 'ghost'
+                                  : target === 'CONFIRMED'
+                                    ? 'default'
+                                    : 'outline'
+                              }
+                              size="sm"
+                              className={
+                                target === 'CANCELLED' ? 'text-destructive' : undefined
+                              }
+                              loading={updatingId === appointment.id}
+                              disabled={
+                                (updatingId !== null &&
+                                  updatingId !== appointment.id) ||
+                                actionDisabled(appointment, target)
+                              }
+                              title={
+                                actionDisabled(appointment, target)
+                                  ? 'Disponible cuando el turno haya comenzado'
+                                  : undefined
+                              }
+                              onClick={() =>
+                                target === 'CANCELLED'
+                                  ? void cancel(appointment)
+                                  : void changeStatus(appointment, target)
+                              }
+                            >
+                              {ACTION_LABELS[target] ?? target}
+                            </Button>
+                          ))}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openReschedule(appointment)}
+                          >
+                            Reprogramar
+                          </Button>
+                        </div>
                       </>
                     ) : null}
                   </div>
@@ -532,6 +753,131 @@ export function AgendaView() {
           </Card>
         </div>
       )}
+
+      {rescheduling ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reschedule-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingReschedule) {
+              closeReschedule();
+            }
+          }}
+        >
+          <Card className="max-h-[90vh] w-full max-w-lg overflow-y-auto">
+            <CardHeader>
+              <CardTitle id="reschedule-title">Reprogramar turno</CardTitle>
+              <CardDescription>
+                {rescheduling.client.name} · {rescheduling.service.name}. Se conservan el
+                cliente, el servicio y el estado.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Horario actual:{' '}
+                <span className="font-medium text-foreground">
+                  {new Intl.DateTimeFormat('es-MX', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                    timeZone: timezone,
+                  }).format(new Date(rescheduling.startAt))}
+                </span>
+              </p>
+
+              {error ? (
+                <Alert variant="destructive">
+                  <AlertTitle>No se pudo reprogramar</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="reschedule-date">Nueva fecha</Label>
+                  <Input
+                    id="reschedule-date"
+                    type="date"
+                    value={rescheduleDate}
+                    onChange={(event) => {
+                      setRescheduleDate(event.target.value);
+                      setRescheduleStart(null);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reschedule-employee">Empleado</Label>
+                  <Select
+                    id="reschedule-employee"
+                    value={rescheduleEmployeeId}
+                    onChange={(event) => {
+                      setRescheduleEmployeeId(event.target.value);
+                      setRescheduleStart(null);
+                    }}
+                  >
+                    {activeEmployees.length === 0 ? (
+                      <option value="">Sin empleados activos</option>
+                    ) : null}
+                    {activeEmployees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Horarios disponibles</p>
+                {loadingRescheduleSlots ? (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {Array.from({ length: 8 }).map((_, index) => (
+                      <Skeleton key={index} className="h-9 w-full" />
+                    ))}
+                  </div>
+                ) : rescheduleSlots.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay horarios libres para ese día. Prueba otra fecha u otro
+                    empleado.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {rescheduleSlots.map((startAt) => (
+                      <Button
+                        key={startAt}
+                        type="button"
+                        size="sm"
+                        variant={rescheduleStart === startAt ? 'default' : 'outline'}
+                        onClick={() => setRescheduleStart(startAt)}
+                      >
+                        {formatTime(startAt, timezone)}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2 border-t pt-4">
+                <Button
+                  loading={savingReschedule}
+                  disabled={!rescheduleStart || !rescheduleEmployeeId}
+                  onClick={() => void saveReschedule()}
+                >
+                  Guardar nuevo horario
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={savingReschedule}
+                  onClick={closeReschedule}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <p className="mt-6 text-xs text-muted-foreground">
         Los precios se definen en{' '}
