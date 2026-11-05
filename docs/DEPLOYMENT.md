@@ -212,8 +212,57 @@ puede eliminarse y apuntar `NEXT_PUBLIC_API_URL` directo a la API.
 4. Desplegar la web con la URL de la API.
 5. Actualizar `WEB_ORIGIN` de la API con la URL final de la web y redesplegar.
 6. Probar login, agenda y creación de un turno.
+7. Desplegar el worker con un Redis accesible (sección 5).
 
-## 5. Verificación
+## 5. Worker BullMQ
+
+El worker ejecuta la cola `turnopro-maintenance`: limpia refresh tokens
+expirados y procesa los eventos del outbox. Necesita un proceso persistente y
+Redis, así que **no puede desplegarse en Vercel**.
+
+Requisitos:
+
+- Un Redis accesible por red. En producción usa `rediss://` (TLS): Upstash,
+  Redis Cloud o el addon de Redis de tu host.
+- Un host que ejecute contenedores o un proceso Node 22 (Railway, Fly.io,
+  Render, un VPS…).
+
+La imagen ya existe en el Dockerfile multi-etapa:
+
+```bash
+docker build -f infrastructure/Dockerfile --target worker -t turnopro-worker .
+docker run -d --name turnopro-worker \
+  -e NODE_ENV=production \
+  -e DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres?sslmode=require" \
+  -e REDIS_URL="rediss://default:<password>@<host>:6379" \
+  -e WORKER_HEALTH_PORT=3002 \
+  -e MAINTENANCE_INTERVAL_MINUTES=60 \
+  -p 3002:3002 \
+  turnopro-worker
+```
+
+| Variable | Valor |
+| --- | --- |
+| `DATABASE_URL` | Session pooler de Supabase (`5432`, `sslmode=require`) |
+| `REDIS_URL` | `rediss://…` con TLS |
+| `WORKER_HEALTH_PORT` | `3002` |
+| `MAINTENANCE_INTERVAL_MINUTES` | `60` (rango 5–1440) |
+| `LOG_LEVEL` | `info` |
+
+Usa el **session pooler** (`5432`) o la conexión directa para el worker, no el
+transaction pooler (`6543`): el worker es un proceso persistente y mantiene la
+conexión abierta.
+
+Comprobaciones:
+
+- `GET /health/ready` responde `200` con `database`, `redis` y `worker` en `up`.
+- El log muestra `Worker iniciado` y, al ejecutarse el scheduler,
+  `Trabajo completado` con `expiredRefreshTokens` y `processedOutboxEvents`.
+
+Sin `REDIS_URL` la API sigue funcionando (lo reporta como dependencia no
+configurada), pero la cola no procesa nada.
+
+## 6. Verificación
 
 ```bash
 curl -i https://<api>.vercel.app/api/v1/health/live
@@ -234,9 +283,9 @@ Comprobaciones:
 - La web carga la agenda con los datos del seed.
 - Un recurso de otra organización responde `404`.
 
-## 6. Límites conocidos
+## 7. Límites conocidos
 
-- El worker BullMQ no se despliega en Vercel.
+- El worker BullMQ no se despliega en Vercel; sigue la sección 5.
 - Las tareas programadas dependen del worker; en Vercel no hay proceso
   persistente.
 - Las funciones serverless abren conexiones nuevas al pooler; usa
