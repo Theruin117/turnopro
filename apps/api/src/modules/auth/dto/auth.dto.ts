@@ -50,6 +50,7 @@ export class RegisterDto {
   email!: string;
 
   @ApiProperty({ example: 'una-clave-segura-2026', minLength: PASSWORD_MIN_LENGTH })
+  @Transform(trim)
   @IsString()
   @MinLength(PASSWORD_MIN_LENGTH)
   @MaxLength(PASSWORD_MAX_LENGTH)
@@ -66,6 +67,7 @@ export class LoginDto {
   email!: string;
 
   @ApiProperty({ example: 'una-clave-segura-2026' })
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(PASSWORD_MAX_LENGTH)

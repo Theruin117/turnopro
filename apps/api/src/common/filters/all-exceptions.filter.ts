@@ -65,6 +65,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (status >= 500) {
         message = 'Ocurrió un error inesperado';
       }
+      if (status === 429) {
+        message = 'Demasiados intentos. Espera un minuto y vuelve a intentarlo.';
+      }
     } else if (exception instanceof Error) {
       this.logger.error(
         `Excepción no controlada en ${request.method} ${request.originalUrl ?? request.url}: ${exception.message}`,
