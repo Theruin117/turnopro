@@ -270,6 +270,34 @@ Cuerpo opcional:
 
 La cancelación libera el slot para futuras reservas.
 
+### `PATCH /appointments/:id/status`
+
+Cuerpo:
+
+```json
+{ "status": "CONFIRMED", "reason": "opcional, solo al cancelar" }
+```
+
+Estados destino admitidos: `CONFIRMED`, `COMPLETED`, `NO_SHOW` y `CANCELLED`.
+
+Transiciones válidas:
+
+| Desde | Hacia |
+| --- | --- |
+| `PENDING` | `CONFIRMED`, `CANCELLED` |
+| `CONFIRMED` | `COMPLETED`, `NO_SHOW`, `CANCELLED` |
+| `COMPLETED`, `CANCELLED`, `NO_SHOW` | ninguna (terminales) |
+
+Reglas:
+
+- `COMPLETED` y `NO_SHOW` solo se permiten cuando el turno ya comenzó.
+- `CANCELLED` reutiliza el flujo de cancelación (motivo y `cancelledAt`).
+- Repetir el estado actual devuelve `200` sin cambios.
+- `409 CONFLICT` ante una transición inválida o un turno futuro.
+- `404 NOT_FOUND` si el turno no pertenece al tenant.
+
+Cada cambio queda registrado como `appointment.status_changed` en auditoría.
+
 ## 4. Catálogo
 
 Permisos: `services:read/write`, `employees:read/write`, `clients:read/write`. Cada recurso se busca siempre por `organizationId`; un identificador de otra organización responde `404 NOT_FOUND`.

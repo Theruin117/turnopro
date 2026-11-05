@@ -28,6 +28,7 @@ import { AppointmentsService } from './appointments.service';
 import { AppointmentsQueryDto } from './dto/appointments-query.dto';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 
 @ApiTags('appointments')
 @ApiBearerAuth('access-token')
@@ -80,6 +81,26 @@ export class AppointmentsController {
       request.auth.sub,
       dto,
       idempotencyKey,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Patch(':id/status')
+  @HttpCode(200)
+  @RequirePermissions('appointments:write')
+  @ApiOperation({ summary: 'Cambia el estado operativo de un turno' })
+  @ApiResponse({ status: 409, description: 'Transición inválida o turno aún no iniciado' })
+  updateStatus(
+    @CurrentOrganization() organization: { id: string },
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) appointmentId: string,
+    @Body() dto: UpdateAppointmentStatusDto,
+  ): Promise<Appointment> {
+    return this.appointments.updateStatus(
+      organization.id,
+      request.auth.sub,
+      appointmentId,
+      dto,
       getRequestMetadata(request),
     );
   }

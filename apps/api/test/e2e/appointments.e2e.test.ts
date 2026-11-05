@@ -101,6 +101,26 @@ function bookingBody(tenant: TenantFixture, startAt: string) {
   };
 }
 
+/** Crea un turno ya iniciado directamente en la base para probar estados. */
+async function createPastAppointment(tenant: TenantFixture) {
+  const startAt = new Date(Date.now() - 2 * 60 * 60 * 1_000);
+  const endAt = new Date(startAt.getTime() + 30 * 60 * 1_000);
+
+  return prisma.appointment.create({
+    data: {
+      organizationId: tenant.organizationId,
+      clientId: tenant.clientId,
+      employeeId: tenant.employeeId,
+      serviceId: tenant.serviceId,
+      startAt,
+      endAt,
+      blockedFromAt: new Date(startAt.getTime() - 5 * 60 * 1_000),
+      blockedUntilAt: new Date(endAt.getTime() + 5 * 60 * 1_000),
+      status: 'CONFIRMED',
+    },
+  });
+}
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication({ bufferLogs: true });
@@ -230,8 +250,98 @@ describe('API de turnos (e2e)', () => {
     expect(statuses).toEqual([201, 409]);
   });
 
-  it('aísla los turnos entre organizaciones', async () => {
+  it('cambia el estado solo por transiciones válidas', async () => {
     const created = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(40)))
+      .expect(201);
+
+    const invalidJump = await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(409);
+    expect(invalidJump.body.error.code).toBe('CONFLICT');
+
+    const confirmed = await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'CONFIRMED' })
+      .expect(200);
+    expect(confirmed.body.status).toBe('CONFIRMED');
+
+    // Confirmar dos veces es idempotente.
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'CONFIRMED' })
+      .expect(200);
+
+    // Un turno futuro todavía no se puede completar ni marcar como inasistencia.
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(409);
+
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'NO_SHOW' })
+      .expect(409);
+
+    const cancelled = await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'CANCELLED', reason: 'Prueba de estado' })
+      .expect(200);
+    expect(cancelled.body.status).toBe('CANCELLED');
+    expect(cancelled.body.cancelledAt).toBeTruthy();
+
+    // Estado terminal: no se puede reabrir.
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'CONFIRMED' })
+      .expect(409);
+  });
+
+  it('permite completar un turno ya iniciado y lo audita', async () => {
+    const past = await createPastAppointment(tenantA);
+
+    const completed = await request(server)
+      .patch(`${API}/appointments/${past.id}/status`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({ status: 'COMPLETED' })
+      .expect(200);
+    expect(completed.body.status).toBe('COMPLETED');
+
+    const audit = await prisma.auditLog.findFirst({
+      where: {
+        organizationId: tenantA.organizationId,
+        entityId: past.id,
+        action: 'appointment.status_changed',
+      },
+    });
+    expect(audit).not.toBeNull();
+  });
+
+  it('aísla el cambio de estado entre organizaciones', async () => {
+    const created = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(44)))
+      .expect(201);
+
+    await request(server)
+      .patch(`${API}/appointments/${created.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantB.accessToken}`)
+      .send({ status: 'CONFIRMED' })
+      .expect(404);
+  });
+
+  it('aísla los turnos entre organizaciones', async () => {    const created = await request(server)
       .post(`${API}/appointments`)
       .set('Authorization', `Bearer ${tenantA.accessToken}`)
       .send(bookingBody(tenantA, futureIso(30)))

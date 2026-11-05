@@ -5,6 +5,7 @@ import type {
   AppointmentStatus,
   PaginatedResponse,
 } from '@turnopro/contracts';
+import { canTransitionAppointment } from '@turnopro/contracts';
 import { AppError, ErrorCode, type RequestMetadata } from '@turnopro/shared';
 
 import { AuditService } from '../audit/audit.service';
@@ -12,6 +13,15 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import type { AppointmentsQueryDto } from './dto/appointments-query.dto';
 import type { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import type { CreateAppointmentDto } from './dto/create-appointment.dto';
+import type { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
+
+const STATUS_LABELS: Record<AppointmentStatus, string> = {
+  PENDING: 'pendiente',
+  CONFIRMED: 'confirmado',
+  COMPLETED: 'completado',
+  CANCELLED: 'cancelado',
+  NO_SHOW: 'inasistencia',
+};
 
 const MAX_TRANSACTION_ATTEMPTS = 3;
 const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -150,14 +160,87 @@ export class AppointmentsService {
     return mapAppointment(outcome.appointment);
   }
 
+  async updateStatus(
+    organizationId: string,
+    actorUserId: string,
+    appointmentId: string,
+    dto: UpdateAppointmentStatusDto,
+    meta: RequestMetadata,
+  ): Promise<Appointment> {
+    const existing = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, organizationId },
+    });
+
+    if (!existing) {
+      throw new AppError(
+        ErrorCode.NOT_FOUND,
+        404,
+        'El turno no existe en esta organización',
+      );
+    }
+
+    const from = existing.status as AppointmentStatus;
+
+    // La cancelación conserva su flujo propio (motivo, cancelledAt y replay).
+    if (dto.status === 'CANCELLED') {
+      return this.cancel(
+        organizationId,
+        actorUserId,
+        appointmentId,
+        { reason: dto.reason },
+        meta,
+      );
+    }
+
+    if (from === dto.status) {
+      return this.getById(organizationId, appointmentId);
+    }
+
+    if (!canTransitionAppointment(from, dto.status)) {
+      throw new AppError(
+        ErrorCode.CONFLICT,
+        409,
+        `No se puede pasar de ${STATUS_LABELS[from]} a ${STATUS_LABELS[dto.status]}`,
+      );
+    }
+
+    if (
+      (dto.status === 'COMPLETED' || dto.status === 'NO_SHOW') &&
+      Date.now() < existing.startAt.getTime()
+    ) {
+      throw new AppError(
+        ErrorCode.CONFLICT,
+        409,
+        'Solo puedes completar o marcar inasistencia cuando el turno ya comenzó',
+      );
+    }
+
+    const updated = await this.prisma.appointment.update({
+      where: { id: appointmentId, organizationId },
+      data: { status: dto.status },
+      include: appointmentInclude,
+    });
+
+    await this.audit.record({
+      organizationId,
+      actorUserId,
+      action: 'appointment.status_changed',
+      entity: 'appointment',
+      entityId: appointmentId,
+      metadata: { from, to: dto.status },
+      ...meta,
+    });
+
+    return mapAppointment(updated);
+  }
+
   async cancel(
     organizationId: string,
     actorUserId: string,
     appointmentId: string,
     dto: CancelAppointmentDto,
     meta: RequestMetadata,
-  ): Promise<Appointment> {
-    const existing = await this.prisma.appointment.findFirst({
+  ): Promise<Appointment> {    const existing = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, organizationId },
     });
 

@@ -10,6 +10,40 @@ export const APPOINTMENT_STATUSES = [
 
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 
+/**
+ * Transiciones válidas de un turno. Los estados terminales no tienen salida.
+ * `CANCELLED` siempre pasa por el flujo de cancelación (motivo y `cancelledAt`).
+ */
+export const APPOINTMENT_TRANSITIONS: Record<
+  AppointmentStatus,
+  readonly AppointmentStatus[]
+> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['COMPLETED', 'NO_SHOW', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+  NO_SHOW: [],
+};
+
+export function canTransitionAppointment(
+  from: AppointmentStatus,
+  to: AppointmentStatus,
+): boolean {
+  return APPOINTMENT_TRANSITIONS[from].includes(to);
+}
+
+/** Estados a los que se puede llegar por `PATCH /appointments/:id/status`. */
+export const APPOINTMENT_STATUS_TARGETS = ['CONFIRMED', 'COMPLETED', 'NO_SHOW', 'CANCELLED'] as const;
+
+export type AppointmentStatusTarget = (typeof APPOINTMENT_STATUS_TARGETS)[number];
+
+export const updateAppointmentStatusSchema = z.object({
+  status: z.enum(APPOINTMENT_STATUS_TARGETS),
+  reason: z.string().trim().min(3).max(240).optional(),
+});
+
+export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
+
 export const createAppointmentSchema = z.object({
   clientId: z.uuid('El cliente no es válido'),
   employeeId: z.uuid('El empleado no es válido'),
