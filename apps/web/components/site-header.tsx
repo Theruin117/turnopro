@@ -9,21 +9,33 @@ import { Button, buttonVariants, cn } from '@turnopro/ui';
 import { useAuth } from '@/components/providers/auth-provider';
 import { ApiError } from '@/lib/api';
 
-const appLinks = [
+interface AppLink {
+  href: string;
+  label: string;
+  permission?: string;
+}
+
+const APP_LINKS: AppLink[] = [
   { href: '/dashboard', label: 'Panel' },
-  { href: '/agenda', label: 'Agenda' },
-  { href: '/catalog', label: 'Catálogo' },
-  { href: '/availability', label: 'Disponibilidad' },
-  { href: '/team', label: 'Equipo' },
-  { href: '/settings', label: 'Organización' },
-] as const;
+  { href: '/agenda', label: 'Agenda', permission: 'appointments:read' },
+  { href: '/catalog', label: 'Catálogo', permission: 'services:read' },
+  { href: '/availability', label: 'Disponibilidad', permission: 'employees:read' },
+  { href: '/reports', label: 'Reportes', permission: 'reports:read' },
+  { href: '/audit', label: 'Auditoría', permission: 'audit:read' },
+  { href: '/team', label: 'Equipo', permission: 'members:read' },
+  { href: '/settings', label: 'Organización', permission: 'organization:update' },
+];
 
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, status, logout } = useAuth();
+  const { session, status, logout, hasPermission } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const visibleLinks = APP_LINKS.filter(
+    (link) => !link.permission || hasPermission(link.permission),
+  );
 
   async function handleLogout(): Promise<void> {
     setSigningOut(true);
@@ -50,7 +62,7 @@ export function SiteHeader() {
 
         {session ? (
           <nav className="ml-4 hidden items-center gap-1 md:flex">
-            {appLinks.map((link) => (
+            {visibleLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -102,7 +114,7 @@ export function SiteHeader() {
       ) : null}
       {session ? (
         <nav className="flex items-center gap-1 overflow-x-auto border-t px-4 py-2 md:hidden">
-          {appLinks.map((link) => (
+          {visibleLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}

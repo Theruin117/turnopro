@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import type {
@@ -868,7 +869,14 @@ function ClientsSection({
             ) : (
               clients.map((client) => (
                 <TableRow key={client.id}>
-                  <TableCell className="font-medium">{client.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link
+                      href={`/clients/${client.id}`}
+                      className="underline-offset-2 hover:underline"
+                    >
+                      {client.name}
+                    </Link>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     <p>{client.email ?? '—'}</p>
                     <p className="text-xs">{client.phone ?? ''}</p>
