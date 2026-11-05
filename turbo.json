@@ -30,6 +30,11 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "tsconfig.tsbuildinfo"]
     },
+    "@turnopro/database#build": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["dist/**", "tsconfig.tsbuildinfo"]
+    },
     "dev": {
       "dependsOn": ["^build"],
       "cache": false,
