@@ -18,9 +18,13 @@ import { PrismaModule } from './infrastructure/database/prisma.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { ClientsModule } from './modules/clients/clients.module';
+import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { ServicesModule } from './modules/services/services.module';
 
 @Module({
   imports: [
@@ -96,6 +100,10 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     HealthModule,
     AuthModule,
     AppointmentsModule,
+    AvailabilityModule,
+    ServicesModule,
+    EmployeesModule,
+    ClientsModule,
     OrganizationsModule,
   ],
   providers: [

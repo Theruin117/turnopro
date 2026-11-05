@@ -2,75 +2,77 @@
 
 ## Estado actual
 
-La fundación está entregada y verificada:
+La fundación y el primer módulo de negocio están entregados y verificados:
 
 - monorrepositorio pnpm + Turborepo;
-- web Next.js con registro, login, panel, ajustes y equipo;
+- web Next.js con registro, login, panel, ajustes, equipo, agenda, catálogo y disponibilidad;
 - API NestJS con OpenAPI;
 - PostgreSQL + Prisma con migración inicial y seed;
 - multi-tenancy y RBAC;
 - motor de reservas idempotente y resistente a concurrencia;
+- CRUD de servicios, empleados y clientes con archivado/desactivación;
+- horario semanal por empleado, bloqueos puntuales y cálculo de slots;
 - worker BullMQ con limpieza programada;
 - Dockerfile y Compose preparados;
-- 10 pruebas automatizadas pasando (5 de integración + 5 e2e);
+- 35 pruebas automatizadas pasando (20 unitarias + 5 de integración + 10 e2e);
 - documentación de arquitectura, base de datos, API, seguridad y operación.
 
-## Siguiente módulo recomendado: agenda y disponibilidad
+## Módulo entregado: agenda y disponibilidad
 
-Es el siguiente paso de mayor valor porque convierte el motor de reservas ya probado en una experiencia usable.
+Alcance implementado:
+
+1. **CRUD de servicios** (`services:read/write`), con nombre único por organización, duración, buffers, precio y archivado.
+2. **CRUD de empleados** (`employees:read/write`), con color, servicios ofrecidos y desactivación.
+3. **CRUD de clientes** (`clients:read/write`), con archivado que conserva el historial.
+4. **Reglas de disponibilidad** por empleado y día, reemplazadas atómicamente, con validación de solapamientos.
+5. **Bloqueos puntuales** (`time_off`) con creación, listado filtrado por rango y eliminación.
+6. **Slots disponibles** en `GET /availability/slots`, con pasos de 15 minutos, zona horaria de la organización, buffers, turnos y bloqueos.
+7. **UI de agenda diaria** con selección de cliente/servicio/empleado, reserva idempotente y cancelación.
+8. **UI de catálogo** por pestañas y **UI de disponibilidad** con editor semanal y bloqueos.
+
+Criterios de aceptación cubiertos:
+
+- `STAFF` puede ver agenda y crear/cancelar turnos; no edita catálogo.
+- `MANAGER`/`ADMIN`/`OWNER` editan servicios, empleados, clientes, reglas y bloqueos.
+- Los slots respetan buffers, `time_off` y turnos no cancelados.
+- La reserva mantiene idempotencia y la restricción de exclusión ante carreras.
+- La UI muestra fechas y horas en la zona de la organización.
+- Las pruebas e2e cubren aislamiento entre dos organizaciones y validación de DTOs.
+
+## Siguiente módulo recomendado: operación del negocio
+
+El siguiente paso de mayor valor es convertir la agenda en operación diaria completa:
 
 ### Alcance
 
-1. **CRUD de servicios** (`services:read/write`)
-   - nombre, duración, buffers, precio, estado;
-   - validación de solapamientos de nombre por organización.
-2. **CRUD de empleados** (`employees:read/write`)
-   - datos básicos y color;
-   - vínculo con servicios;
-   - activación/desactivación.
-3. **Reglas de disponibilidad**
-   - horario semanal por empleado;
-   - excepciones (`time_off`);
-   - validación de rangos.
-4. **Endpoint de slots disponibles**
-   - `GET /appointments/availability?employeeId=&serviceId=&date=`;
-   - calcula intersección de disponibilidad, `time_off`, buffers y turnos existentes;
-   - usa la zona horaria de la organización;
-   - no reserva, sólo propone.
-5. **UI de agenda**
-   - vista diaria/semanal;
-   - selección de cliente, servicio, empleado y slot;
-   - creación idempotente desde el frontend;
-   - cancelación con confirmación;
-   - estados vacíos y errores reales, sin botones simulados.
-6. **Clientes**
-   - búsqueda y alta rápida desde la agenda;
-   - evitar duplicados por teléfono.
+1. **Historial de clientes**: turnos pasados, notas y búsqueda por teléfono.
+2. **Reprogramación**: mover un turno validando de nuevo el slot y la idempotencia.
+3. **Estados operativos**: confirmar, completar y marcar `NO_SHOW` desde la agenda.
+4. **Reportes básicos**: ocupación por empleado, ingresos estimados y cancelaciones.
+5. **Auditoría visible** para `ADMIN`/`OWNER` con filtros por entidad y fecha.
+6. **Recordatorios**: outbox + worker + email transaccional real.
 
 ### Criterios de aceptación
 
-- Un usuario `STAFF` puede ver la agenda y crear/cancelar turnos.
-- Un usuario `MANAGER` puede además editar servicios y empleados.
-- Un `STAFF` no puede acceder a ajustes de organización ni a equipo.
-- Los slots propuestos respetan buffers, `time_off` y turnos existentes.
-- Dos pestañas que reservan el mismo slot: sólo una recibe `201`, la otra `409`.
-- Reintentar la creación con la misma clave devuelve el mismo turno.
-- La agenda muestra la zona horaria de la organización, no la del navegador.
-- Pruebas e2e cubren aislamiento entre dos organizaciones.
+- Reprogramar no permite solapamientos ni deja el slot anterior bloqueado.
+- Los reportes filtran por organización y rango de fechas.
+- Un `STAFF` no accede a reportes ni auditoría.
+- Los recordatorios no se marcan como enviados si el proveedor falla.
+- Pruebas e2e cubren aislamiento y transiciones de estado inválidas.
 
 ### Riesgos y decisiones pendientes
 
-- Definir si un turno puede cruzar la medianoche.
-- Definir granularidad de slots (5, 10, 15 minutos).
-- Decidir si la disponibilidad se calcula en SQL o en servicio; se recomienda SQL para evitar traer demasiados datos.
-- Evaluar caché de disponibilidad en Redis; invalidar al crear/cancelar.
+- Definir política de reprogramación (límite de tiempo, quién puede hacerlo).
+- Decidir si los reportes se calculan en SQL o con vistas materializadas.
+- Evaluar caché de disponibilidad en Redis; invalidar al crear, cancelar o reprogramar.
+- Definir plantillas de correo y proveedor antes de implementar recordatorios.
 
 ## Fase 2 — Operación del negocio
 
 | Módulo | Alcance | Dependencias |
 | --- | --- | --- |
-| Clientes | CRUD, historial, búsqueda, notas | Agenda |
-| Servicios y precios | Catálogo completo, impuestos | Agenda |
+| Historial de clientes | Turnos pasados, notas y búsqueda (CRUD ya entregado) | Agenda |
+| Servicios y precios | Impuestos y listas de precios (catálogo base ya entregado) | Agenda |
 | Equipo e invitaciones | Invitar por correo, aceptar, suspender | Email |
 | Reportes | Ocupación, ingresos, cancelaciones | Turnos |
 | Auditoría visible | Pantalla de actividad para `ADMIN`/`OWNER` | Auditoría |
@@ -120,7 +122,7 @@ El LLM nunca debe recibir acceso a Prisma, SQL ni IDs internos sin contexto auto
 
 1. El rate limiting es por proceso, no distribuido.
 2. No hay verificación de correo ni recuperación de contraseña.
-3. La UI no tiene agenda todavía.
+3. La agenda no permite reprogramar ni cambiar estados operativos (`CONFIRMED`, `COMPLETED`, `NO_SHOW`).
 4. Docker no se ejecutó en el entorno de construcción.
 5. No hay CI configurado en el repositorio.
 6. Las pruebas de carga y el pentest están pendientes.
@@ -130,13 +132,12 @@ El LLM nunca debe recibir acceso a Prisma, SQL ni IDs internos sin contexto auto
 ## Orden sugerido de trabajo
 
 ```text
-1. Agenda + disponibilidad + CRUD servicios/empleados
-2. Clientes
+1. Historial de clientes y reprogramación
+2. Reportes y auditoría visible
 3. Invitaciones y verificación de email
-4. Reportes y auditoría visible
-5. Outbox + recordatorios por email
-6. Adaptador de IA de sólo lectura
-7. Endurecimiento para producción
+4. Outbox + recordatorios por email
+5. Adaptador de IA de sólo lectura
+6. Endurecimiento para producción
 ```
 
 Cada fase debe cerrar con:

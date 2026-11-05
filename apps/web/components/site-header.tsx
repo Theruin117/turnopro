@@ -11,6 +11,9 @@ import { ApiError } from '@/lib/api';
 
 const appLinks = [
   { href: '/dashboard', label: 'Panel' },
+  { href: '/agenda', label: 'Agenda' },
+  { href: '/catalog', label: 'Catálogo' },
+  { href: '/availability', label: 'Disponibilidad' },
   { href: '/team', label: 'Equipo' },
   { href: '/settings', label: 'Organización' },
 ] as const;

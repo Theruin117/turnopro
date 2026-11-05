@@ -239,6 +239,22 @@ sequenceDiagram
 
 Cancelar cambia el estado a `CANCELLED` y registra `cancelledAt`. La restricción de exclusión sólo aplica a estados distintos de `CANCELLED`, por lo que el slot queda libre. La operación es idempotente: cancelar un turno ya cancelado devuelve el mismo recurso. Un turno `COMPLETED` no se puede cancelar.
 
+### 8.7 Disponibilidad y agenda
+
+`apps/api/src/modules/availability` calcula los slots sin duplicar las garantías del motor de reservas:
+
+1. Revalida que organización, empleado y servicio estén activos y que el empleado ofrezca el servicio.
+2. Convierte la fecha local `YYYY-MM-DD` al rango UTC del día usando la zona horaria de la organización (`packages/shared/src/datetime.ts`, basado en `Intl`).
+3. Toma las reglas del día (`weekday` 0–6) y avanza en pasos de 15 minutos desde `startMinute` hasta `endMinute - durationMinutes`.
+4. Descarta inicios pasados y los que se solapan con turnos no cancelados o `time_off`, comparando siempre rangos bloqueados con buffers.
+5. Devuelve los slots ordenados; no escribe en la base ni reserva.
+
+La creación del turno vuelve a validar todo dentro de la transacción `SERIALIZABLE`. Un slot propuesto es una sugerencia: la verdad final la impone la restricción de exclusión.
+
+Las reglas se reemplazan de forma atómica con `PUT /availability/employees/:employeeId/rules`: se borran las anteriores y se insertan las nuevas en una transacción, con validación de solapamientos por día. Los bloqueos puntuales (`time_off`) se crean y eliminan con auditoría.
+
+En la web, `/agenda` combina `GET /availability/slots` con `GET /appointments?from=&to=` para una vista diaria; `/catalog` gestiona servicios, empleados y clientes; `/availability` edita horario semanal y bloqueos. Todas las fechas se muestran en la zona de la organización, no en la del navegador.
+
 ## 9. Worker y asincronía
 
 - Cola: `turnopro-maintenance`.
@@ -268,7 +284,7 @@ El LLM **nunca** recibe acceso a Prisma ni a la base de datos. Sólo puede invoc
 - `/health/live`: proceso HTTP vivo.
 - `/health/ready`: PostgreSQL y Redis disponibles; responde `503` si falta una dependencia.
 - Worker con health propio y logs JSON por trabajo.
-- Auditoría de negocio en `audit_logs` para creación/cancelación de turnos y cambios de organización.
+- Auditoría de negocio en `audit_logs` para creación/cancelación de turnos, cambios de organización y operaciones de catálogo, reglas y bloqueos.
 
 ## 12. Despliegue local con Docker
 
@@ -308,16 +324,19 @@ Puntos importantes:
 | Revalidar membresía en cada petición | Confiar sólo en el JWT | Un usuario suspendido pierde acceso de inmediato |
 | Transacción serializable + exclusión GiST | Sólo validación en aplicación | La base es la última línea de defensa ante carreras |
 | Idempotencia en base de datos | Caché en memoria/Redis | Persistente y consistente entre réplicas |
+| Cálculo de slots en el servicio con `Intl` | Dependencia de fechas o cálculo en SQL | Menos acoplamiento, sin nuevas dependencias y reutiliza las reglas del motor |
+| Slots en pasos de 15 minutos | Slots de 5/10 minutos o duración exacta | Equilibrio entre flexibilidad y volumen de datos |
 | Worker separado | Tareas dentro de la API | Evita acoplar latencia y ciclo de vida |
 | `ai-core` como puertos | Llamadas directas a OpenAI desde controladores | Mantiene el dominio testeable y sin acceso a datos |
 
 ## 14. Límites actuales
 
 - Rate limiting en memoria: no coordinado entre réplicas.
-- Sin UI de agenda todavía.
 - Sin envío real de correos ni invitaciones.
 - Sin consumidores de outbox.
 - Sin pruebas de carga formales.
+- Sin caché de disponibilidad: cada consulta de slots lee reglas, turnos y bloqueos.
+- Sin reserva pública ni reprogramación desde la UI.
 - Docker no verificado en ejecución local.
 
-El siguiente paso recomendado es el módulo de agenda y disponibilidad, descrito en [`ROADMAP.md`](ROADMAP.md).
+El siguiente paso recomendado es la operación del negocio (historial de clientes, reportes y comunicaciones), descrito en [`ROADMAP.md`](ROADMAP.md).

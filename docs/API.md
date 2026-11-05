@@ -270,7 +270,167 @@ Cuerpo opcional:
 
 La cancelación libera el slot para futuras reservas.
 
-## 4. Salud
+## 4. Catálogo
+
+Permisos: `services:read/write`, `employees:read/write`, `clients:read/write`. Cada recurso se busca siempre por `organizationId`; un identificador de otra organización responde `404 NOT_FOUND`.
+
+### Servicios
+
+| Método | Ruta | Permiso | Descripción |
+| --- | --- | --- | --- |
+| `GET` | `/services` | `services:read` | Lista paginada |
+| `GET` | `/services/:id` | `services:read` | Detalle |
+| `POST` | `/services` | `services:write` | Crear |
+| `PATCH` | `/services/:id` | `services:write` | Actualizar |
+| `DELETE` | `/services/:id` | `services:write` | Archivar (`ARCHIVED`) |
+
+`GET /services` acepta `page`, `pageSize`, `status` (`ACTIVE`, `ARCHIVED`) y `search` por nombre.
+
+Cuerpo de creación:
+
+```json
+{
+  "name": "Consulta general",
+  "description": "Consulta de 30 minutos",
+  "durationMinutes": 30,
+  "bufferBeforeMinutes": 5,
+  "bufferAfterMinutes": 5,
+  "priceCents": 45000
+}
+```
+
+- El nombre es único por organización sin distinguir mayúsculas (`409 CONFLICT` si se repite).
+- Los buffers extienden el rango bloqueado del turno, no la duración mostrada al cliente.
+- `DELETE` es idempotente y sólo cambia el estado; conserva el historial de turnos.
+
+### Empleados
+
+| Método | Ruta | Permiso | Descripción |
+| --- | --- | --- | --- |
+| `GET` | `/employees` | `employees:read` | Lista paginada con servicios |
+| `GET` | `/employees/:id` | `employees:read` | Detalle |
+| `POST` | `/employees` | `employees:write` | Crear y asignar servicios |
+| `PATCH` | `/employees/:id` | `employees:write` | Actualizar |
+| `DELETE` | `/employees/:id` | `employees:write` | Marcar `INACTIVE` |
+
+`GET /employees` acepta `page`, `pageSize`, `status` (`ACTIVE`, `INACTIVE`) y `search` por nombre o correo.
+
+```json
+{
+  "name": "Ana López",
+  "email": "ana@estudio.local",
+  "phone": "+5215555550100",
+  "color": "#2563EB",
+  "serviceIds": ["uuid-servicio"]
+}
+```
+
+- `serviceIds` reemplaza por completo la oferta del empleado en cada `PATCH`.
+- Sólo se aceptan servicios de la misma organización; de lo contrario `400 VALIDATION_ERROR`.
+- Un empleado inactivo no aparece en el cálculo de slots.
+
+### Clientes
+
+| Método | Ruta | Permiso | Descripción |
+| --- | --- | --- | --- |
+| `GET` | `/clients` | `clients:read` | Lista paginada |
+| `GET` | `/clients/:id` | `clients:read` | Detalle |
+| `POST` | `/clients` | `clients:write` | Crear |
+| `PATCH` | `/clients/:id` | `clients:write` | Actualizar |
+| `DELETE` | `/clients/:id` | `clients:write` | Archivar (`ARCHIVED`) |
+
+`GET /clients` acepta `page`, `pageSize`, `status` (`ACTIVE`, `ARCHIVED`) y `search` por nombre, correo o teléfono. Archivar conserva el historial de turnos y evita nuevas reservas con ese cliente.
+
+## 5. Disponibilidad
+
+### `GET /availability/slots`
+
+Permiso: `appointments:read`.
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+| --- | --- | --- | --- |
+| `employeeId` | UUID | Sí | Empleado activo del tenant |
+| `serviceId` | UUID | Sí | Servicio activo ofrecido por el empleado |
+| `date` | `YYYY-MM-DD` | Sí | Fecha local en la zona de la organización |
+
+Calcula los inicios posibles en pasos de 15 minutos dentro del horario semanal, restando turnos no cancelados, `time_off`, buffers y horas ya pasadas. No reserva nada.
+
+```json
+{
+  "date": "2026-11-10",
+  "timezone": "America/Mexico_City",
+  "employeeId": "uuid",
+  "serviceId": "uuid",
+  "durationMinutes": 30,
+  "slots": [
+    { "startAt": "2026-11-10T16:00:00.000Z", "endAt": "2026-11-10T16:30:00.000Z" }
+  ]
+}
+```
+
+Si el empleado no ofrece el servicio: `400 VALIDATION_ERROR`. Si empleado o servicio no pertenecen al tenant o están inactivos: `404 NOT_FOUND`.
+
+### `GET /availability/employees/:employeeId/rules`
+
+Permiso: `employees:read`. Devuelve el horario semanal ordenado por día y minuto:
+
+```json
+[
+  {
+    "id": "uuid",
+    "employeeId": "uuid",
+    "weekday": 1,
+    "startMinute": 540,
+    "endMinute": 1080,
+    "createdAt": "2026-11-04T18:00:00.000Z",
+    "updatedAt": "2026-11-04T18:00:00.000Z"
+  }
+]
+```
+
+`weekday` usa `0 = domingo … 6 = sábado`. Los minutos se cuentan desde medianoche local (540 = 09:00). `endMinute` puede ser 1440.
+
+### `PUT /availability/employees/:employeeId/rules`
+
+Permiso: `employees:write`. Reemplaza el horario completo dentro de una transacción:
+
+```json
+{
+  "rules": [
+    { "weekday": 1, "startMinute": 540, "endMinute": 780 },
+    { "weekday": 1, "startMinute": 900, "endMinute": 1080 }
+  ]
+}
+```
+
+- Cada intervalo debe terminar después de empezar.
+- Dos intervalos del mismo día no pueden solaparse (`400 VALIDATION_ERROR`).
+- Enviar `rules: []` deja al empleado sin atención semanal.
+- La operación registra auditoría `availability.rules_replaced`.
+
+### `GET /availability/employees/:employeeId/time-off`
+
+Permiso: `employees:read`. Acepta `from` y `to` ISO 8601 opcionales para filtrar por intersección. Devuelve los bloqueos ordenados por inicio.
+
+### `POST /availability/employees/:employeeId/time-off`
+
+Permiso: `employees:write`.
+
+```json
+{
+  "startsAt": "2026-11-15T15:00:00.000Z",
+  "endsAt": "2026-11-15T18:00:00.000Z",
+  "reason": "Capacitación"
+}
+```
+
+El fin debe ser posterior al inicio. El bloqueo impide slots y reservas que se solapen con el rango, incluidos los buffers.
+
+### `DELETE /availability/time-off/:id`
+
+Permiso: `employees:write`. Elimina un bloqueo de la organización activa. Responde `204 No Content`; si no pertenece al tenant, `404 NOT_FOUND`.
+
+## 6. Salud
 
 ### `GET /health/live`
 
@@ -293,7 +453,7 @@ Comprueba PostgreSQL y Redis (y estado del proceso). `200` si todo está arriba;
 
 El worker expone las mismas rutas en `http://localhost:3002/health/live` y `/health/ready`, con checks de base de datos, Redis y worker.
 
-## 5. Formato de errores
+## 7. Formato de errores
 
 Todos los errores comparten la misma envoltura:
 
@@ -335,7 +495,7 @@ Códigos disponibles:
 
 Nunca se devuelven stack traces, SQL ni detalles internos.
 
-## 6. Paginación
+## 8. Paginación
 
 Todas las listas paginadas usan:
 
@@ -351,7 +511,7 @@ Todas las listas paginadas usan:
 
 `pageSize` máximo: 100.
 
-## 7. Rate limiting
+## 9. Rate limiting
 
 Límites por IP (ventana deslizante en memoria):
 
@@ -365,7 +525,7 @@ Límites por IP (ventana deslizante en memoria):
 
 Al exceder: `429 RATE_LIMITED`.
 
-## 8. Ejemplos con cURL
+## 10. Ejemplos con cURL
 
 ```bash
 # Registro
@@ -389,12 +549,22 @@ curl -i -X POST http://localhost:3001/api/v1/appointments \
   -H 'Idempotency-Key: reserva-001' \
   -d '{"clientId":"'$CLIENT_ID'","employeeId":"'$EMPLOYEE_ID'","serviceId":"'$SERVICE_ID'","startAt":"2026-11-10T16:00:00.000Z"}'
 
+# Consultar slots disponibles
+curl "http://localhost:3001/api/v1/availability/slots?employeeId=$EMPLOYEE_ID&serviceId=$SERVICE_ID&date=2026-11-10" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# Reemplazar horario semanal (lunes 09:00–13:00 y 15:00–18:00)
+curl -X PUT "http://localhost:3001/api/v1/availability/employees/$EMPLOYEE_ID/rules" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"rules":[{"weekday":1,"startMinute":540,"endMinute":780},{"weekday":1,"startMinute":900,"endMinute":1080}]}'
+
 # Refrescar (requiere Origin)
 curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3001/api/v1/auth/refresh \
   -H 'Origin: http://localhost:3000'
 ```
 
-## 9. Contratos y versionado
+## 11. Contratos y versionado
 
 Los tipos públicos viven en `packages/contracts` y los esquemas Zod en el mismo paquete. La versión actual es `v1` en la ruta.
 

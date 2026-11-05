@@ -1,6 +1,6 @@
 # TurnoPro
 
-Base ejecutable de un SaaS multi-tenant para gestión de turnos y citas. El repositorio entrega la **fundación técnica** completa —autenticación, aislamiento por organización, RBAC, motor de reservas transaccional y trabajos asíncronos— no un producto terminado con todos los módulos de negocio.
+Base ejecutable de un SaaS multi-tenant para gestión de turnos y citas. El repositorio entrega la **fundación técnica** completa —autenticación, aislamiento por organización, RBAC, motor de reservas transaccional y trabajos asíncronos— y el **módulo de agenda y disponibilidad** sobre el que se construye el resto del producto.
 
 - Repositorio: <https://github.com/Theruin117/turnopro>
 - Documentación: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/DATABASE.md`](docs/DATABASE.md) · [`docs/API.md`](docs/API.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md)
@@ -18,10 +18,13 @@ Base ejecutable de un SaaS multi-tenant para gestión de turnos y citas. El repo
 | RBAC por rol (`OWNER`, `ADMIN`, `MANAGER`, `STAFF`) | ✅ |
 | Registro, login, refresh rotativo, logout, `me` | ✅ |
 | Motor de reservas: idempotencia, concurrencia, solapamientos | ✅ |
+| Catálogo de servicios, empleados y clientes | ✅ |
+| Horario semanal, bloqueos y cálculo de slots | ✅ |
+| Agenda diaria, reserva y cancelación en la web | ✅ |
 | Worker BullMQ + limpieza programada + health server | ✅ |
 | Dockerfile multi-etapa y Docker Compose | ✅ (no ejecutado en el entorno de desarrollo) |
 | Integración real con WhatsApp / OpenAI | ⛔ fuera de alcance de esta etapa |
-| UI de agenda/turnos | ⛔ siguiente módulo recomendado |
+| Reportes, reprogramación y estados operativos | ⛔ siguiente módulo recomendado |
 
 ## Stack
 
@@ -129,7 +132,7 @@ pnpm infra:down
 | `pnpm typecheck` | Verificación de tipos en los 11 proyectos |
 | `pnpm test` | Pruebas unitarias (sin integración) |
 | `pnpm test:integration` | 5 pruebas contra PostgreSQL real |
-| `pnpm test:e2e` | 5 pruebas HTTP contra la API real |
+| `pnpm test:e2e` | 10 pruebas HTTP contra la API real |
 | `pnpm db:migrate` | Crea/aplica migraciones en desarrollo |
 | `pnpm db:deploy` | Aplica migraciones pendientes (producción) |
 | `pnpm db:seed` | Carga datos ficticios locales |
@@ -139,20 +142,19 @@ pnpm infra:down
 ## Verificación ejecutada
 
 ```text
-pnpm lint               8/8 proyectos OK (0 errores, 41 avisos de import type)
+pnpm lint               8/8 proyectos OK (0 errores, 57 avisos de import type)
 pnpm typecheck          11/11 proyectos OK
 pnpm test               20 pruebas unitarias OK
 pnpm test:integration   5/5 pruebas OK
-pnpm test:e2e           5/5 pruebas OK
+pnpm test:e2e           10/10 pruebas OK
 
 API:    nest build OK
 Worker: tsc OK
-Web:    next build genera .next/BUILD_ID y las 8 rutas; en este sandbox el
-        proceso termina con código 139 (fallo de qroot/libc) después de emitir
-        la build, no por un error de compilación.
+Web:    next build OK; genera .next/BUILD_ID y 11 rutas, incluidas
+        /agenda, /availability y /catalog.
 ```
 
-Las pruebas cubren solapamientos exactos, dos reservas concurrentes en el mismo horario, idempotencia, cancelación que libera el slot, aislamiento de lectura entre organizaciones y rechazo de cruces de tenant en la API.
+Las pruebas cubren solapamientos exactos, dos reservas concurrentes en el mismo horario, idempotencia, cancelación que libera el slot, aislamiento de lectura entre organizaciones, rechazo de cruces de tenant, paginación/validación de DTOs y el flujo de catálogo + reglas + slots + reserva + cancelación.
 
 ## Decisiones que conviene conocer
 
@@ -164,7 +166,7 @@ Las pruebas cubren solapamientos exactos, dos reservas concurrentes en el mismo 
 
 ## Estado y límites conocidos
 
-1. La UI actual cubre landing, registro, login, panel, ajustes y equipo. La agenda visual de turnos es el siguiente módulo recomendado.
+1. La UI cubre landing, registro, login, panel, ajustes, equipo, agenda diaria, catálogo y disponibilidad. Reprogramación, estados operativos y reportes son el siguiente módulo recomendado.
 2. WhatsApp y OpenAI no están integrados por decisión de alcance; `packages/ai-core` queda preparado con interfaces, no con llamadas simuladas.
 3. El rate limiting usa almacenamiento en memoria del proceso; para varias réplicas debe moverse a Redis.
 4. El correo y las invitaciones de miembros aún no envían mensajes reales.

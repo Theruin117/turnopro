@@ -2,4 +2,8 @@ export * from './api';
 export * from './appointments';
 export * from './auth';
 export * from './auth.types';
+export * from './availability';
+export * from './clients';
+export * from './employees';
 export * from './pagination';
+export * from './services';
