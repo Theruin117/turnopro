@@ -182,6 +182,41 @@ describe('API de turnos (e2e)', () => {
     expect(cancelled.body.status).toBe('CANCELLED');
   });
 
+  it('filtra el historial por cliente y aísla el tenant', async () => {
+    const created = await request(server)
+      .post(`${API}/appointments`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send(bookingBody(tenantA, futureIso(64)))
+      .expect(201);
+
+    const list = await request(server)
+      .get(`${API}/appointments?clientId=${tenantA.clientId}`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .expect(200);
+
+    expect(list.body.items.length).toBeGreaterThan(0);
+    expect(
+      list.body.items.every(
+        (item: { client: { id: string } }) => item.client.id === tenantA.clientId,
+      ),
+    ).toBe(true);
+    expect(
+      list.body.items.some((item: { id: string }) => item.id === created.body.id),
+    ).toBe(true);
+
+    // Un cliente de otra organización no es visible ni siquiera por UUID.
+    const crossTenant = await request(server)
+      .get(`${API}/appointments?clientId=${tenantA.clientId}`)
+      .set('Authorization', `Bearer ${tenantB.accessToken}`)
+      .expect(404);
+    expect(crossTenant.body.error.code).toBe('NOT_FOUND');
+
+    await request(server)
+      .get(`${API}/appointments?clientId=${randomUUID()}`)
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .expect(404);
+  });
+
   it('reintenta de forma idempotente con la misma clave', async () => {
     const startAt = futureIso(2);
     const key = `idem-${suffix}`;

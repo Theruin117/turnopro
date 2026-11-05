@@ -88,10 +88,27 @@ export class AppointmentsService {
       );
     }
 
+    if (query.clientId) {
+      const client = await this.prisma.client.findFirst({
+        where: { id: query.clientId, organizationId },
+        select: { id: true },
+      });
+
+      if (!client) {
+        throw new AppError(
+          ErrorCode.NOT_FOUND,
+          404,
+          'El cliente no existe en esta organización',
+          { field: 'clientId' },
+        );
+      }
+    }
+
     const where: Prisma.AppointmentWhereInput = {
       organizationId,
       ...(query.status ? { status: query.status } : {}),
       ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.from || query.to
         ? {
             startAt: {
@@ -323,6 +340,17 @@ export class AppointmentsService {
     ensureReschedulable(existing.status as AppointmentStatus);
 
     const input = normalizeRescheduleInput(dto, existing);
+
+    // Si el destino es idéntico, no se escribe ni se audita nada.
+    if (
+      input.employeeId === existing.employeeId &&
+      input.serviceId === existing.serviceId &&
+      input.startAt.getTime() === existing.startAt.getTime() &&
+      (input.notes ?? null) === (existing.notes ?? null)
+    ) {
+      return this.getById(organizationId, appointmentId);
+    }
+
     const updated = await this.rescheduleWithRetry(
       organizationId,
       appointmentId,

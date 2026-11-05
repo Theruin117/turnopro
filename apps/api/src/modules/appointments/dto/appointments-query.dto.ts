@@ -41,4 +41,8 @@ export class AppointmentsQueryDto {
   @IsOptional()
   @IsUUID()
   employeeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
 }
