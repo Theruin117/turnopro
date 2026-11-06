@@ -23,6 +23,7 @@ coverage/
 logs/
 .tmp/
 tmp/
+.data/
 
 # Sistema operativo / editores
 .DS_Store

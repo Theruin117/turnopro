@@ -15,7 +15,8 @@ La fundación y el primer módulo de negocio están entregados y verificados:
 - horario semanal por empleado, bloqueos puntuales y cálculo de slots;
 - estados operativos y reprogramación de turnos;
 - reportes de ocupación e ingresos, auditoría visible y gestión de miembros;
-- worker BullMQ con limpieza programada;
+- worker BullMQ con limpieza programada y script de sandbox supervisado;
+- CI en GitHub Actions con jobs de calidad y de integración/e2e;
 - Dockerfile y Compose preparados;
 - pruebas unitarias, de integración y e2e;
 - documentación de arquitectura, base de datos, API, seguridad y operación.
@@ -127,17 +128,16 @@ El LLM nunca debe recibir acceso a Prisma, SQL ni IDs internos sin contexto auto
 1. El rate limiting es por proceso, no distribuido.
 2. No hay verificación de correo ni recuperación de contraseña.
 3. Docker no se ejecutó en el entorno de construcción.
-4. No hay CI configurado en el repositorio.
-5. Las pruebas de carga y el pentest están pendientes.
-6. La auditoría no tiene política de retención.
-7. El frontend no tiene pruebas de componentes.
-8. La reprogramación no valida reglas horarias semanales al mover un turno; replica los
+4. Las pruebas de carga y el pentest están pendientes.
+5. La auditoría no tiene política de retención.
+6. El frontend no tiene pruebas de componentes.
+7. La reprogramación no valida reglas horarias semanales al mover un turno; replica los
    invariantes de la creación (empleado-servicio, bloqueos, buffers y solapamientos).
 
 ## Orden sugerido de trabajo
 
 ```text
-1. Worker BullMQ en producción y CI
+1. Worker BullMQ en producción (Railway recomendado)
 2. Invitaciones y verificación de email (Fase 3)
 3. Outbox + recordatorios por email
 4. Impuestos y listas de precios

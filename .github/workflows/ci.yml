@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Valor ficticio: `prisma generate` exige que la variable exista, pero el
+  # job de calidad no se conecta a ninguna base de datos.
+  DATABASE_URL: postgresql://turnopro:turnopro@localhost:5432/turnopro?schema=public
+
+jobs:
+  quality:
+    name: Lint, tipos, build y pruebas unitarias
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm build
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+
+      - run: pnpm test
+
+  e2e:
+    name: Integración y e2e con PostgreSQL y Redis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: turnopro
+          POSTGRES_PASSWORD: turnopro
+          POSTGRES_DB: turnopro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U turnopro -d turnopro"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Las pruebas y el seed leen secretos ficticios desde `.env`; el archivo
+      # no se versiona y sólo existe durante este job.
+      - name: Crear .env de pruebas
+        run: |
+          cat > .env <<'EOF'
+          NODE_ENV=development
+          APP_VERSION=0.1.0
+          API_PREFIX=api/v1
+          LOG_LEVEL=error
+          SWAGGER_ENABLED=false
+          WEB_ORIGIN=http://localhost:3000
+          PORT=3001
+          DATABASE_URL=postgresql://turnopro:turnopro@localhost:5432/turnopro?schema=public
+          REDIS_URL=redis://localhost:6379
+          WORKER_HEALTH_PORT=3002
+          JWT_ACCESS_SECRET=ci-only-secret-value-with-more-than-32-chars
+          JWT_ACCESS_TTL_SECONDS=900
+          REFRESH_TOKEN_TTL_DAYS=30
+          COOKIE_SECURE=false
+          RATE_LIMIT_TTL_SECONDS=60
+          RATE_LIMIT_LIMIT=1000
+          SEED_OWNER_EMAIL=owner@demo.turnopro.local
+          SEED_OWNER_PASSWORD=TurnoProDemo123!
+          SEED_ORG_SLUG=demo
+          SEED_ORG_NAME=TurnoPro Demo
+          EOF
+
+      # `@turnopro/contracts` y `@turnopro/shared` se consumen desde dist en
+      # tiempo de ejecución, así que hay que compilarlos antes de las pruebas.
+      - run: pnpm exec turbo run build --filter=@turnopro/api...
+
+      - run: pnpm db:generate
+
+      - run: pnpm db:deploy
+
+      - run: pnpm db:seed
+        env:
+          NODE_ENV: development
+
+      - run: pnpm test:integration
+
+      - run: pnpm test:e2e

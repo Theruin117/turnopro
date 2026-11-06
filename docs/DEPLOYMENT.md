@@ -10,7 +10,7 @@ y la API en Vercel. El worker BullMQ no corre en Vercel y queda en otro host.
 | PostgreSQL | Supabase | Migración y seed con Prisma |
 | Web (Next.js) | Vercel | Proyecto `turnopro-web`, root `apps/web` |
 | API (NestJS) | Vercel | Una función catch-all `api/[...path].js` |
-| Worker (BullMQ) | Pendiente | Requiere un host con Redis y procesos persistentes |
+| Worker (BullMQ) | Railway (recomendado) | Requiere host con Redis y procesos persistentes |
 
 La API usa un único handler serverless que crea el contenedor Nest en la
 primera invocación y lo reutiliza mientras la instancia esté tibia. No se llama
@@ -262,7 +262,59 @@ Comprobaciones:
 Sin `REDIS_URL` la API sigue funcionando (lo reporta como dependencia no
 configurada), pero la cola no procesa nada.
 
-## 6. Verificación
+### Worker en sandbox (sólo demostración)
+
+Mientras no exista un host de producción, puedes levantar el worker de forma
+reproducible con:
+
+```bash
+pnpm --filter @turnopro/worker build
+WORKER_DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres?sslmode=require" \
+  node scripts/worker-sandbox.mjs
+```
+
+El script:
+
+1. Carga `.env` con `process.loadEnvFile()`.
+2. Arranca `redis-server` en `127.0.0.1:6380` con persistencia en `.data/redis`
+   si el puerto no responde `PING`.
+3. Ejecuta `apps/worker/dist/main.js` con el `DATABASE_URL` indicado y
+   `REDIS_URL=redis://127.0.0.1:6380`.
+4. Reinicia el worker con backoff de 5 s a 30 s si el proceso termina.
+5. Cierra el worker y el Redis propio al recibir `SIGTERM`/`SIGINT`.
+
+`WORKER_DATABASE_URL` debe ser el session pooler (`:5432`). El script rechaza el
+transaction pooler (`:6543` o `pgbouncer=true`) porque el worker mantiene una
+conexión persistente.
+
+Comprobación:
+
+```bash
+curl -i http://127.0.0.1:3002/health/ready
+```
+
+Debe responder `200` con `database`, `redis` y `worker` en `up`.
+
+> **No es producción.** El Redis y el worker viven dentro del sandbox y mueren
+> con él. Si más adelante despliegas el worker real, detén este proceso para no
+> tener dos instancias consumiendo la misma cola.
+
+## 6. Integración continua
+
+`.github/workflows/ci.yml` se ejecuta en cada `push` a `main` y en cada
+`pull_request`:
+
+| Job | Contenido |
+| --- | --- |
+| `quality` | `pnpm install --frozen-lockfile`, `lint`, `typecheck`, `build` y `test` |
+| `e2e` | PostgreSQL 16 y Redis 7 efímeros, migración, seed, pruebas de integración y e2e |
+
+El job `e2e` crea un `.env` con secretos ficticios y compila los paquetes de
+workspace antes de las pruebas. No usa credenciales reales ni se conecta a
+Supabase. Si el workflow falla por un error de tipos, lint o pruebas, el PR
+queda bloqueado.
+
+## 7. Verificación
 
 ```bash
 curl -i https://<api>.vercel.app/api/v1/health/live
@@ -283,7 +335,7 @@ Comprobaciones:
 - La web carga la agenda con los datos del seed.
 - Un recurso de otra organización responde `404`.
 
-## 7. Límites conocidos
+## 8. Límites conocidos
 
 - El worker BullMQ no se despliega en Vercel; sigue la sección 5.
 - Las tareas programadas dependen del worker; en Vercel no hay proceso
