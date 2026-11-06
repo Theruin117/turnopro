@@ -338,6 +338,7 @@ export class AvailabilityService {
       );
     }
 
+    // tenant-scope-exempt: el bloqueo se verificó arriba con organizationId
     await this.prisma.timeOff.delete({ where: { id: timeOffId } });
 
     await this.audit.record({

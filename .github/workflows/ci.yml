@@ -39,6 +39,8 @@ jobs:
 
       - run: pnpm lint
 
+      - run: pnpm check:tenant-scope
+
       - run: pnpm typecheck
 
       - run: pnpm build

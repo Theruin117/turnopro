@@ -16,6 +16,7 @@
     "dev:web": "pnpm --filter @turnopro/web dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "check:tenant-scope": "node scripts/check-tenant-scope.mjs",
     "test": "turbo run test",
     "test:integration": "pnpm --filter @turnopro/database test:integration",
     "test:e2e": "pnpm --filter @turnopro/api test:e2e",

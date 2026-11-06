@@ -103,6 +103,7 @@ export class ClientsService {
       );
     }
 
+    // tenant-scope-exempt: findOrThrow validó el cliente con organizationId
     const client = await this.prisma.client.update({
       where: { id: clientId },
       data: {
@@ -139,6 +140,7 @@ export class ClientsService {
       return mapClient(existing);
     }
 
+    // tenant-scope-exempt: findOrThrow validó el cliente con organizationId
     const client = await this.prisma.client.update({
       where: { id: clientId },
       data: { status: 'ARCHIVED' },

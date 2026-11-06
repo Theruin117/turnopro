@@ -105,6 +105,7 @@ export class ServicesService {
       );
     }
 
+    // tenant-scope-exempt: findOrThrow validó el servicio con organizationId
     const service = await this.prisma.service.update({
       where: { id: serviceId },
       data: {
@@ -151,6 +152,7 @@ export class ServicesService {
       return mapService(existing);
     }
 
+    // tenant-scope-exempt: findOrThrow validó el servicio con organizationId
     const service = await this.prisma.service.update({
       where: { id: serviceId },
       data: { status: 'ARCHIVED' },

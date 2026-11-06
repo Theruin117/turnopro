@@ -206,6 +206,7 @@ export class EmployeesService {
       return mapEmployee(existing);
     }
 
+    // tenant-scope-exempt: findOrThrow validó el empleado con organizationId
     const employee = await this.prisma.employee.update({
       where: { id: employeeId },
       data: { status: 'INACTIVE' },

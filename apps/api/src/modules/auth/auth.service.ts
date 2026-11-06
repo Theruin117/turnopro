@@ -113,6 +113,7 @@ export class AuthService {
       throw invalidCredentials();
     }
 
+    // tenant-scope-exempt: login resuelve todas las organizaciones del usuario
     const memberships = await this.prisma.membership.findMany({
       where: { userId: user.id },
       include: { organization: true },

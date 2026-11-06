@@ -70,13 +70,32 @@ Esto significa que suspender una membresía o desactivar un usuario surte efecto
 - Las escrituras verifican que las entidades relacionadas pertenezcan al mismo tenant.
 - Las pruebas e2e incluyen lectura, cancelación y creación cruzada entre dos organizaciones.
 
-### Defensa en profundidad pendiente
+### Defensa en profundidad
 
-Hoy el aislamiento depende de disciplina en las consultas. Para una etapa posterior se recomienda:
+Controles actuales:
 
-- Row Level Security (RLS) de PostgreSQL con `SET LOCAL app.organization_id`;
-- un lint personalizado que detecte `findMany`/`findFirst` sin `organizationId`;
-- pruebas de contrato que recorran todos los endpoints con dos tenants.
+- `organizationId` sale del token y se revalida contra la base en cada petición.
+- Las consultas de negocio incluyen el tenant de forma explícita.
+- Los recursos de otro tenant responden `404`.
+- Las pruebas e2e recorren lectura, escritura, reprogramación y cancelación
+  cruzada entre dos organizaciones.
+- `pnpm check:tenant-scope` analiza las llamadas `this.prisma.<modelo>.<op>` de
+  `apps/api/src` y falla si no mencionan `organizationId` ni mediante una
+  variable local. Las excepciones justificadas se marcan con
+  `// tenant-scope-exempt: <motivo>` (por ejemplo, una escritura por `id`
+  después de un `findOrThrow(organizationId, id)`).
+- El guard está en el job `quality` de CI.
+
+Limitaciones del guard estático:
+
+- Es heurístico: no resuelve todos los flujos de datos ni los alias complejos.
+- No cubre SQL crudo (`$queryRaw`), el worker ni scripts.
+- Una excepción mal justificada puede ocultar una consulta insegura; el revisor
+  debe comprobar que el `findOrThrow` previo filtre por organización.
+
+Para una etapa posterior se recomienda Row Level Security (RLS) de PostgreSQL
+con `SET LOCAL app.organization_id` como última barrera, además del guard y de
+las pruebas e2e.
 
 ## 4. Validación de entrada
 
@@ -117,10 +136,12 @@ Implementado con `@nestjs/throttler`:
 
 - Logs estructurados JSON con nivel configurable.
 - `X-Request-Id` en cada petición y respuesta.
-- `audit_logs` registra:
-  - `appointment.created`;
-  - `appointment.cancelled`;
-  - `organization.updated`.
+- `audit_logs` registra, entre otras acciones:
+  - `appointment.created`, `appointment.status_changed`, `appointment.rescheduled`, `appointment.cancelled`;
+  - `client.*`, `service.*`, `employee.*`;
+  - `availability.rules_replaced`, `availability.time_off_created`, `availability.time_off_deleted`;
+  - `member.updated`, `organization.updated`;
+  - `auth.login`, `auth.logout`, `auth.register`, `auth.refresh_reuse_detected`.
 - La auditoría incluye actor, organización, entidad, metadatos, IP y user-agent.
 - No se audita el replay idempotente para no duplicar eventos.
 - Los errores internos se registran completos en servidor, pero el cliente sólo recibe `INTERNAL_ERROR`.
@@ -170,9 +191,15 @@ Reglas:
 | Lectura cruzada de turno | `404` en lugar de filtrar datos |
 | Cancelación cruzada | `404` |
 | Creación con entidades de otro tenant | `404` |
+| Reprogramación cruzada | `404` |
+| Historial de cliente de otro tenant | `404` |
 | Reutilización de clave idempotente con otros datos | `409` |
 | Dos reservas concurrentes | Sólo una gana |
+| Dos reprogramaciones concurrentes | Sólo una gana |
 | Cancelación libera el slot | No hay bloqueo permanente |
+| Transiciones de estado inválidas | `409` sin cambios |
+| `COMPLETED`/`NO_SHOW` antes del inicio | `409` |
+| `STAFF` en reportes o auditoría | `403` |
 | Login con credenciales inválidas | `401` sin filtrar qué campo falló |
 
 ## 11. Riesgos residuales y recomendaciones

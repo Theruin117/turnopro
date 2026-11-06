@@ -295,6 +295,7 @@ export class AppointmentsService {
       );
     }
 
+    // tenant-scope-exempt: el turno se cargó arriba con organizationId
     const cancelled = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: {
