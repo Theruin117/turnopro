@@ -16,7 +16,6 @@ const ARGON2_OPTIONS = {
 } as const;
 
 const DEMO_TIMEZONE = 'America/Mexico_City';
-const MINUTES_IN_DAY = 24 * 60;
 
 function formatDateKey(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
