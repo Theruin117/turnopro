@@ -22,9 +22,14 @@ Base ejecutable de un SaaS multi-tenant para gestión de turnos y citas. El repo
 | Horario semanal, bloqueos y cálculo de slots | ✅ |
 | Agenda diaria, reserva y cancelación en la web | ✅ |
 | Worker BullMQ + limpieza programada + health server | ✅ |
+| Reportes, auditoría visible y gestión de miembros | ✅ |
+| Reprogramación, estados operativos e historial de cliente | ✅ |
+| CI en GitHub Actions (calidad + integración/e2e) | ✅ |
+| Guard estático de aislamiento multi-tenant | ✅ |
+| Worker en sandbox supervisado (sólo demostración) | ✅ |
+| Métricas, trazas y alertas externas | ⛔ Fase 5 |
 | Dockerfile multi-etapa y Docker Compose | ✅ (no ejecutado en el entorno de desarrollo) |
 | Integración real con WhatsApp / OpenAI | ⛔ fuera de alcance de esta etapa |
-| Reportes, reprogramación y estados operativos | ⛔ siguiente módulo recomendado |
 
 ## Stack
 
@@ -129,10 +134,11 @@ pnpm infra:down
 | `pnpm dev:api` / `dev:web` / `dev:worker` | Ejecuta un solo servicio |
 | `pnpm build` | Compila todos los paquetes y aplicaciones |
 | `pnpm lint` | ESLint en todo el workspace |
+| `pnpm check:tenant-scope` | Verifica que las consultas Prisma de la API filtren por organización |
 | `pnpm typecheck` | Verificación de tipos en los 11 proyectos |
-| `pnpm test` | Pruebas unitarias (sin integración) |
+| `pnpm test` | 30 pruebas unitarias (sin integración) |
 | `pnpm test:integration` | 5 pruebas contra PostgreSQL real |
-| `pnpm test:e2e` | 10 pruebas HTTP contra la API real |
+| `pnpm test:e2e` | 30 pruebas HTTP contra la API real |
 | `pnpm db:migrate` | Crea/aplica migraciones en desarrollo |
 | `pnpm db:deploy` | Aplica migraciones pendientes (producción) |
 | `pnpm db:seed` | Carga datos ficticios locales |
@@ -142,17 +148,26 @@ pnpm infra:down
 ## Verificación ejecutada
 
 ```text
-pnpm lint               8/8 proyectos OK (0 errores, 57 avisos de import type)
+pnpm lint                8/8 proyectos OK (0 errores, 65 avisos)
+pnpm check:tenant-scope  53 consultas con tenant, 8 excepciones justificadas
 pnpm typecheck          11/11 proyectos OK
-pnpm test               20 pruebas unitarias OK
+pnpm test               30 pruebas unitarias OK
 pnpm test:integration   5/5 pruebas OK
-pnpm test:e2e           10/10 pruebas OK
+pnpm test:e2e           30/30 pruebas OK
 
 API:    nest build OK
 Worker: tsc OK
-Web:    next build OK; genera .next/BUILD_ID y 11 rutas, incluidas
-        /agenda, /availability y /catalog.
+Web:    next build OK; genera .next/BUILD_ID y 13 rutas, incluidas
+        /agenda, /availability, /catalog, /reports, /audit y /team.
 ```
+
+La integración continua ejecuta los mismos pasos en `.github/workflows/ci.yml`:
+un job de calidad y otro con PostgreSQL y Redis efímeros para integración y e2e.
+
+El worker se puede levantar de forma reproducible con
+`node scripts/worker-sandbox.mjs` (Redis local, reinicio con backoff y health
+checks). **No es un despliegue de producción**; ver
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 Las pruebas cubren solapamientos exactos, dos reservas concurrentes en el mismo horario, idempotencia, cancelación que libera el slot, aislamiento de lectura entre organizaciones, rechazo de cruces de tenant, paginación/validación de DTOs y el flujo de catálogo + reglas + slots + reserva + cancelación.
 

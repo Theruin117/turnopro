@@ -279,12 +279,82 @@ El LLM **nunca** recibe acceso a Prisma ni a la base de datos. Sólo puede invoc
 
 ## 11. Observabilidad
 
-- Logs JSON con `pino`; se redactan cookies, autorización y contraseñas.
-- `X-Request-Id` propagado a logs y respuestas.
-- `/health/live`: proceso HTTP vivo.
-- `/health/ready`: PostgreSQL y Redis disponibles; responde `503` si falta una dependencia.
-- Worker con health propio y logs JSON por trabajo.
-- Auditoría de negocio en `audit_logs` para creación/cancelación de turnos, cambios de organización y operaciones de catálogo, reglas y bloqueos.
+El mínimo operativo se apoya en logs estructurados, un identificador de petición y
+health checks. No hay todavía métricas, trazas ni alertas externas.
+
+### Logs
+
+- La API usa `pino` (vía `nestjs-pino`). En producción escribe JSON a stdout; en
+  desarrollo usa `pino-pretty` en una línea.
+- Cada entrada incluye `time`, `level`, `service`, `requestId`, método, ruta,
+  código de estado y duración cuando corresponde.
+- Se redactan `authorization`, `cookie`, `set-cookie` y `password`. No se
+  registran tokens, contraseñas ni cuerpos completos.
+- `/health/live` se excluye del log de acceso para no llenar el registro con el
+  sondeo del orquestador.
+- El worker (`apps/worker`) escribe su propio JSON con `service:
+  "turnopro-worker"`, `jobId`, `jobName` y el resultado de cada trabajo. Al
+  arrancar y detener registra mensajes explícitos.
+
+### Correlación de peticiones
+
+- Un middleware en `apps/api/src/app.setup.ts` lee `X-Request-Id` si viene y
+  tiene como máximo 128 caracteres; si no, genera un `randomUUID()`.
+- El identificador se devuelve en la respuesta (`X-Request-Id`, expuesto por
+  CORS) y se usa como `reqId` de pino.
+- El filtro global de excepciones incluye `requestId` en el cuerpo del error y
+  en el log, de modo que un usuario puede reportar el identificador y se puede
+  reconstruir la traza en los logs del proveedor.
+- El worker no comparte `requestId`: es asíncrono. Para seguirlo se usan
+  `jobId` y el `id` del evento de outbox.
+
+### Health checks
+
+| Endpoint | Comprueba | Uso |
+| --- | --- | --- |
+| `GET /api/v1/health/live` | El proceso HTTP responde | Liveness del orquestador |
+| `GET /api/v1/health/ready` | PostgreSQL y Redis | Readiness; `503` si falta una dependencia |
+| `GET :WORKER_HEALTH_PORT/health/live` | El proceso del worker responde | Liveness |
+| `GET :WORKER_HEALTH_PORT/health/ready` | PostgreSQL, Redis y worker activo | Readiness |
+
+`/health/ready` devuelve `status: "degraded"` y código `503` cuando alguna
+dependencia falla, e incluye `latencyMs` por comprobación. Si `REDIS_URL` no
+está configurada, Redis se reporta como `down` con un mensaje explícito: la API
+sigue operando, pero la cola no procesa nada.
+
+Comprobación manual:
+
+```bash
+curl -i http://localhost:3001/api/v1/health/ready
+curl -i http://localhost:3002/health/ready
+```
+
+### Métricas y trazas: decisión
+
+OpenTelemetry **no** se incorpora en esta etapa. Requiere un colector, un
+backend (Tempo, Jaeger, Honeycomb u otro), muestreo y un costo operativo que no
+aporta valor mientras no haya tráfico real. Los logs con `requestId` y los
+health checks cubren el diagnóstico básico.
+
+Cuando se justifique (Fase 5), el orden recomendado es:
+
+1. Instrumentar HTTP y NestJS con `@opentelemetry/sdk-node` y propagar
+   `traceparent`.
+2. Instrumentar Prisma y BullMQ para ver consultas lentas y espera en cola.
+3. Exportar por OTLP al colector; no acoplar la API a un proveedor concreto.
+4. Añadir métricas mínimas: tasa de peticiones, errores 5xx, latencia p95,
+   reservas creadas/conflictos, longitud de la cola y tiempo de espera de la
+   conexión a base de datos.
+5. Definir alertas para `/health/ready` caído más de 2 minutos, pico de 5xx,
+   cola estancada y fallo de copias de seguridad.
+
+### Auditoría de negocio
+
+`audit_logs` no es observabilidad técnica: registra acciones de negocio
+(creación, reprogramación y cancelación de turnos, cambios de catálogo, reglas,
+bloqueos, miembros y organización). Se consulta con `GET /audit` y se conserva
+sin política de retención definida; ver la deuda técnica en
+[`ROADMAP.md`](ROADMAP.md).
 
 ## 12. Despliegue local con Docker
 
@@ -335,8 +405,9 @@ Puntos importantes:
 - Sin envío real de correos ni invitaciones.
 - Sin consumidores de outbox.
 - Sin pruebas de carga formales.
+- Sin métricas, trazas ni alertas externas; ver §11.
 - Sin caché de disponibilidad: cada consulta de slots lee reglas, turnos y bloqueos.
-- Sin reserva pública ni reprogramación desde la UI.
+- Sin reserva pública: la agenda interna ya permite reprogramar, pero no hay portal para el cliente final.
 - Docker no verificado en ejecución local.
 
 El siguiente paso recomendado es la operación del negocio (historial de clientes, reportes y comunicaciones), descrito en [`ROADMAP.md`](ROADMAP.md).

@@ -72,6 +72,23 @@ Criterios cubiertos:
 Pendiente de la fase: invitaciones por correo (requiere proveedor de email) y recordatorios
 (outbox + worker + proveedor transaccional).
 
+## Hardening entregado
+
+- **CI**: `.github/workflows/ci.yml` con un job `quality` (lint, guard de tenant,
+  tipos, build y pruebas unitarias) y un job `e2e` con PostgreSQL 16 y Redis 7
+  efímeros (migración, seed, integración y e2e).
+- **Aislamiento**: `pnpm check:tenant-scope` revisa las consultas Prisma de la
+  API y falla si no filtran por organización; documentado en
+  [`SECURITY.md`](SECURITY.md).
+- **Copias de seguridad**: procedimiento de `pg_dump`/`pg_restore` y simulacro
+  verificado con conteos e índices idénticos, en
+  [`DEPLOYMENT.md`](DEPLOYMENT.md).
+- **Worker**: script `scripts/worker-sandbox.mjs` con Redis local, reinicio con
+  backoff, health checks y cierre ordenado. Sólo para demostración.
+- **Observabilidad mínima**: logs JSON, `X-Request-Id`, health checks de API y
+  worker, y decisión documentada sobre OpenTelemetry en
+  [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## Fase 2 — Operación del negocio
 
 | Módulo | Alcance | Estado |
@@ -116,10 +133,10 @@ El LLM nunca debe recibir acceso a Prisma, SQL ni IDs internos sin contexto auto
 | --- | --- |
 | Rate limiting distribuido | Adaptador Redis |
 | Aislamiento reforzado | RLS de PostgreSQL |
-| Observabilidad | OpenTelemetry, métricas, trazas |
+| Observabilidad | OpenTelemetry, métricas, trazas | Logs, `X-Request-Id` y health checks entregados; métricas y trazas pendientes |
 | Rendimiento | Pruebas de carga, índices parciales, caché de disponibilidad |
 | Seguridad | MFA, verificación de email, pentest, `pnpm audit` en CI |
-| Despliegue | CI/CD, migraciones automáticas, backups y restauración probada |
+| Despliegue | CD, migraciones automáticas y backups programados (CI y simulacro de restore ya entregados) |
 | Multi-sucursal | Evaluar jerarquía organización → sucursal |
 | Facturación | Planes, límites y proveedor de pagos |
 
@@ -133,6 +150,9 @@ El LLM nunca debe recibir acceso a Prisma, SQL ni IDs internos sin contexto auto
 6. El frontend no tiene pruebas de componentes.
 7. La reprogramación no valida reglas horarias semanales al mover un turno; replica los
    invariantes de la creación (empleado-servicio, bloqueos, buffers y solapamientos).
+8. No hay métricas, trazas ni alertas externas; sólo logs, `X-Request-Id` y health checks.
+9. El guard de tenant es estático y heurístico; no sustituye a RLS ni cubre SQL crudo.
+10. El worker de producción requiere un host persistente y Redis; el sandbox no cuenta como despliegue.
 
 ## Orden sugerido de trabajo
 

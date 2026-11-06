@@ -314,7 +314,71 @@ workspace antes de las pruebas. No usa credenciales reales ni se conecta a
 Supabase. Si el workflow falla por un error de tipos, lint o pruebas, el PR
 queda bloqueado.
 
-## 7. Verificación
+## 7. Copias de seguridad y restauración
+
+Supabase ofrece copias automáticas y, según el plan, recuperación a un punto en
+el tiempo (PITR). Además, conviene conservar un volcado lógico propio:
+
+```bash
+# El cliente pg_dump debe ser de la misma versión mayor o superior al servidor.
+# Supabase ejecuta PostgreSQL 17: usa pg_dump 17.
+export SUPABASE_DB="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres?sslmode=require"
+
+pg_dump "$SUPABASE_DB" \
+  --no-owner --no-privileges \
+  --format=custom \
+  --file="turnopro-$(date +%F).dump"
+```
+
+Notas:
+
+- Usa el **session pooler** (`:5432`) o la conexión directa, no el transaction
+  pooler.
+- Quita parámetros específicos de Prisma como `connection_limit` o
+  `pgbouncer=true`: `pg_dump` los rechaza como parámetros de URI inválidos.
+- El formato `custom` permite restaurar con `pg_restore` y paralelizar.
+- Guarda los volcados fuera del repositorio y cifrados; contienen datos
+  personales.
+
+Restauración en una base nueva (nunca directamente sobre producción):
+
+```bash
+createdb turnopro_restore
+pg_restore --no-owner --no-privileges --clean --if-exists \
+  -d turnopro_restore turnopro-2026-11-06.dump
+```
+
+Para un volcado en SQL plano:
+
+```bash
+psql -v ON_ERROR_STOP=1 -d turnopro_restore -f turnopro-2026-11-06.sql
+```
+
+Verificación mínima después de restaurar:
+
+```sql
+select count(*) from organizations;
+select count(*) from appointments;
+select count(*) from pg_indexes where schemaname = 'public';
+select count(*) from pg_constraint where contype = 'x';
+```
+
+Los índices y la restricción de exclusión de turnos deben existir en la copia.
+
+### Simulacro realizado
+
+El 2026-11-06 se ejecutó el procedimiento sobre un PostgreSQL 16 local:
+
+1. Se aplicó la migración inicial y el seed de demostración.
+2. `pg_dump` generó un volcado de 37 KB.
+3. `pg_restore`/`psql` restauró en una base vacía sin errores.
+4. Conteos idénticos en origen y destino: 1 organización, 1 usuario, 6 turnos.
+5. Ambos esquemas conservaron 52 índices y 1 restricción de exclusión.
+
+El simulacro se hizo con PostgreSQL 16 porque el entorno no tenía el cliente 17.
+Contra Supabase (PostgreSQL 17) hay que usar `pg_dump`/`pg_restore` 17.
+
+## 8. Verificación
 
 ```bash
 curl -i https://<api>.vercel.app/api/v1/health/live
@@ -335,7 +399,7 @@ Comprobaciones:
 - La web carga la agenda con los datos del seed.
 - Un recurso de otra organización responde `404`.
 
-## 8. Límites conocidos
+## 9. Límites conocidos
 
 - El worker BullMQ no se despliega en Vercel; sigue la sección 5.
 - Las tareas programadas dependen del worker; en Vercel no hay proceso
